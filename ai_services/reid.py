@@ -12,6 +12,14 @@ from torchvision.transforms import InterpolationMode
 from config.tracking import TrackingConfig
 
 tracking_config=TrackingConfig()
+
+if torch.backends.mps.is_available():
+    device = torch.device("mps")
+elif torch.cuda.is_available():
+    device = torch.device("cuda")
+else:
+    device = torch.device("cpu")
+
 class ReIDModel:
 
     def __init__(self, model_path: str):
@@ -30,6 +38,7 @@ class ReIDModel:
         )
         torchreid.utils.load_pretrained_weights(model, self.model_path)
         model.eval()
+        model.to(device)
         return model
 
     def _create_transform(self) -> transforms.Compose:
@@ -42,10 +51,10 @@ class ReIDModel:
 
     def extract_embedding(self, crop: np.ndarray) -> np.ndarray:
         with torch.no_grad():
-            input_tensor = self.transform(crop).unsqueeze(0)
+            input_tensor = self.transform(crop).unsqueeze(0).to(device)
             feature = self.model(input_tensor)
             normalized_feature = torch.nn.functional.normalize(feature, p=2, dim=1)
-            return normalized_feature.numpy().flatten()
+            return normalized_feature.cpu().numpy().flatten()
 
     def assign_global_id(self, embedding: np.ndarray) -> str:
         """Assign global ID based on embedding similarity."""

@@ -6,14 +6,19 @@ from config.tracking import TrackingConfig
 from ai_services.reid import ReIDModel
 from config.camera import CameraConfig
 from deep_sort_realtime.deepsort_tracker import DeepSort
-
+import torch
 tracking_config= TrackingConfig()
+if torch.backends.mps.is_available():
+    device = torch.device("mps")
+elif torch.cuda.is_available():
+    device = torch.device("cuda")
+else:
+    device = torch.device("cpu")
 class CameraProcessor:
     """Handles processing for a single camera feed."""
 
     def __init__(self, config_camera: CameraConfig):
         self.config = config_camera
-
         self.cap = cv2.VideoCapture(config_camera.video_path)
         self.fps = self.cap.get(cv2.CAP_PROP_FPS) or 25
         self.width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -60,11 +65,12 @@ class CameraProcessor:
         if not ret or self.frame_count >= self.max_frames:
             return None
 
-        frame = self._preprocess_frame(frame)
+        
         self.frame_count += 1
 
         # Perform detection periodically
         if self.frame_count % self.config.detection_interval == 0:
+            frame = self._preprocess_frame(frame)
             detections = self._detect_persons(detector, frame)
             self.last_detection = detections
 
@@ -75,12 +81,11 @@ class CameraProcessor:
     def _detect_persons(self, detector: YOLO, frame: np.ndarray) -> list[tuple]:
         """Detect persons in the frame."""
         detections = []
-        results = detector(frame)
+        results = detector(frame, device= device)
 
         for i, box in enumerate(results[0].boxes.xyxy):
             cls = int(results[0].boxes.cls[i])
             conf = float(results[0].boxes.conf[i])
-
             # Only process person class (class 0)
             if cls != 0:
                 continue
@@ -88,7 +93,6 @@ class CameraProcessor:
             x1, y1, x2, y2 = map(int, box)
             w, h = x2 - x1, y2 - y1
             detections.append(([x1, y1, w, h], conf, 'person'))
-
         return detections
 
     def process_tracks(self, frame: np.ndarray, reid_model: ReIDModel) -> np.ndarray:
