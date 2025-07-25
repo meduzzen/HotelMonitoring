@@ -7,8 +7,9 @@ def main():
     reid_model_path = 'models/osnet_x1_0_market_256x128_amsgrad_ep150_stp60_lr0.0015_b64_fb10_softmax_labelsmooth_flip.pth'
 
     camera_configs = [
-        CameraConfig(name="cam1", video_path="videos/cam1.mp4"),
-        CameraConfig(name="cam2", video_path="videos/cam6.mp4"),
+        CameraConfig(name="cam1", video_path="videos/enter.mp4"),
+        CameraConfig(name="cam2", video_path="videos/elevator.mp4"),
+        CameraConfig(name="cam3", video_path="videos/arka.mp4"),
     ]
 
 
