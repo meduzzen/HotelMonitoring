@@ -4,19 +4,23 @@ from ultralytics import YOLO
 
 from ai_services.process_camera import CameraProcessor
 from ai_services.reid import ReIDModel
+from ai_services.face_recognition import FaceRecognition
 from config.camera import CameraConfig
 import torch
+
 if torch.backends.mps.is_available():
     device = torch.device("mps")
 elif torch.cuda.is_available():
     device = torch.device("cuda")
 else:
     device = torch.device("cpu")
+
+face_recog = FaceRecognition()
 class MultiCameraTracker:
     """Main class for multi-camera person tracking system."""
 
     def __init__(self, reid_model_path: str, camera_configs: list[CameraConfig]):
-        self.reid_model = ReIDModel(reid_model_path)
+        self.reid_model = ReIDModel(reid_model_path, face_recog)
         self.detector = YOLO("models/yolov8s.pt").to(device)
 
         # Initialize camera processors

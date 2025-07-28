@@ -8,6 +8,8 @@ from scipy.spatial.distance import cosine
 from torchvision import transforms
 import torchreid
 from torchvision.transforms import InterpolationMode
+from ai_services.face_recognition import FaceRecognition
+
 
 from config.tracking import TrackingConfig
 
@@ -22,13 +24,14 @@ else:
 
 class ReIDModel:
 
-    def __init__(self, model_path: str):
+    def __init__(self, model_path: str, face_recognition: FaceRecognition):
         self.model_path = model_path
         self.model = self._load_model()
         self.transform = self._create_transform()
         self.embedding_db: dict[str, Deque[np.ndarray]] = {}
         self.threshold = tracking_config.reid_threshold
         self.buffer_size = tracking_config.embedding_buffer_size
+        self.face_recognition = face_recognition
 
     def _load_model(self) -> torch.nn.Module:
         model = torchreid.models.build_model(
@@ -56,15 +59,41 @@ class ReIDModel:
             normalized_feature = torch.nn.functional.normalize(feature, p=2, dim=1)
             return normalized_feature.cpu().numpy().flatten()
 
-    def assign_global_id(self, embedding: np.ndarray) -> str:
+    def assign_global_id(self, embedding: np.ndarray, camera_name: str, frame) -> str:
         """Assign global ID based on embedding similarity."""
         best_gid = self._find_best_match(embedding)
 
+        is_elevator = 'elevator' in camera_name.lower()
+        if is_elevator:
+            face_emb = self.face_recognition.extract_face_embedding(frame)
+            if face_emb is None:
+                print('note detected face')
+            if face_emb is not None:
+                face_id = self.face_recognition.find_matching_face_id(face_emb)
+                if face_id:
+                    print(f"[FaceRec] Existing face match found → Assigned ID: ")
+                    return face_id
+                else:
+                    new_gid = self._create_new_identity(embedding)
+                    self.face_recognition.save_face_embedding(new_gid, face_emb, frame)
+                    print(f"[FaceRec] New face → Assigned new ID: {new_gid}")
+                    return new_gid
+            else:
+                print("[FaceRec] No face detected in elevator frame.")
         if best_gid:
             self._update_embedding_buffer(best_gid, embedding)
+            '''if 'elevator' in camera_name.lower():
+                face_emb = self.face_recognition.extract_face_embedding(frame)
+                print('note detected face')
+                if face_emb is not None:
+                    self.face_recognition.save_face_embedding(best_gid, face_emb)
+                    print(f"[FaceRec] Face embedding saved for existing body ID: {best_gid}")'''
+            # if camera is elevator
+            # make face recognition
+            # add face embedding(or something needed to recognize the persons face again) and assign to this face embedding the same face id as to the body
             return best_gid
-        else:
-            return self._create_new_identity(embedding)
+        print(f"[ReID] No match found → Assigned new ID: {new_gid}")
+        return self._create_new_identity(embedding)
 
     def _find_best_match(self, embedding: np.ndarray) -> str | None:
         """Find the best matching global ID for the given embedding."""

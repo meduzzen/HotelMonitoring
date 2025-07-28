@@ -104,7 +104,7 @@ class CameraProcessor:
 
                 # Extract ReID embedding and assign global ID
                 embedding = reid_model.extract_embedding(crop)
-                global_id = reid_model.assign_global_id(embedding)
+                global_id = reid_model.assign_global_id(embedding, camera_name=self.config.name, frame=frame)
 
                 # Draw bounding box and ID
                 self._draw_track_annotation(frame, l, t, r, b, global_id)
