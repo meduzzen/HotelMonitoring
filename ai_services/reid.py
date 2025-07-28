@@ -71,6 +71,8 @@ class ReIDModel:
             # If ReID matched but no face embedding yet, and camera is elevator → save face embedding
             if is_elevator and best_gid not in self.face_recognition.known_faces:
                 face_emb = self.face_recognition.extract_face_embedding(frame)
+                # use if want to see the result of detection and cropping
+                #self.face_recognition.extract_and_save_crop(frame)
                 if face_emb is not None:
                     self.face_recognition.save_face_embedding(best_gid, face_emb, frame)
                     print(f"[Elevator] Face saved for existing ReID match: {best_gid}")
@@ -81,6 +83,8 @@ class ReIDModel:
         # ReID failed — only try face recognition fallback if camera is elevator
         if is_elevator:
             face_emb = self.face_recognition.extract_face_embedding(frame)
+            # use if want to see the result of detection and cropping
+            #self.face_recognition.extract_and_save_crop(frame)
             if face_emb is not None:
                 matching_face_id = self.face_recognition.find_matching_face_id(face_emb)
                 if matching_face_id:
