@@ -35,12 +35,13 @@ class FaceRecognition:
             
             for face in faces:
                 face_crop = face["face"]
+                face_crop = (face_crop * 255).astype(np.uint8)
             # Get face embeddings
                 results = DeepFace.represent(
                     img_path=face_crop,
                     model_name=self.model_name,
                     detector_backend='mediapipe',  # or 'retinaface', 'mtcnn'
-                    enforce_detection=True
+                    enforce_detection=False
                 )
                 if results and isinstance(results, list):
                     embedding = results[0]['embedding']

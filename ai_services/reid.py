@@ -68,8 +68,8 @@ class ReIDModel:
         if best_gid:
             self._update_embedding_buffer(best_gid, embedding)
 
-            # if in elevator extract face and link it
-            if is_elevator:
+            # if reidentificated but there are no face embedding
+            if is_elevator and best_gid not in self.face_recognition.known_faces:
                 face_emb = self.face_recognition.extract_face_embedding(frame)
                 if face_emb is not None:
                     self.face_recognition.save_face_embedding(best_gid, face_emb, frame)
