@@ -68,7 +68,7 @@ class ReIDModel:
         if best_gid:
             self._update_embedding_buffer(best_gid, embedding)
 
-            # if reidentificated but there are no face embedding
+            # If ReID matched but no face embedding yet, and camera is elevator → save face embedding
             if is_elevator and best_gid not in self.face_recognition.known_faces:
                 face_emb = self.face_recognition.extract_face_embedding(frame)
                 if face_emb is not None:
@@ -77,29 +77,32 @@ class ReIDModel:
                 else:
                     print("[Elevator] No face detected to link to existing ReID match.")
             return best_gid
-        
-        #reid failed try face recogntion
-        face_emb = self.face_recognition.extract_face_embedding(frame)
-        if face_emb is not None:
-            matching_face_id = self.face_recognition.find_matching_face_id(face_emb)
-            if matching_face_id:
-                print(f"[FaceRec] Face match found → Assigning existing face ID: {matching_face_id}")
-                if matching_face_id in self.embedding_db:
-                    self._update_embedding_buffer(matching_face_id, embedding)
+
+        # ReID failed — only try face recognition fallback if camera is elevator
+        if is_elevator:
+            face_emb = self.face_recognition.extract_face_embedding(frame)
+            if face_emb is not None:
+                matching_face_id = self.face_recognition.find_matching_face_id(face_emb)
+                if matching_face_id:
+                    print(f"[FaceRec] Face match found → Assigning existing face ID: {matching_face_id}")
+                    if matching_face_id in self.embedding_db:
+                        self._update_embedding_buffer(matching_face_id, embedding)
+                    else:
+                        self.embedding_db[matching_face_id] = deque([embedding], maxlen=self.buffer_size)
+                    return matching_face_id
                 else:
-                    self.embedding_db[matching_face_id] = deque([embedding], maxlen=self.buffer_size)
-                return matching_face_id
+                    new_gid = self._create_new_identity(embedding)
+                    self.face_recognition.save_face_embedding(new_gid, face_emb, frame)
+                    print(f"[FaceRec] No face match → Created and assigned new ID: {new_gid}")
+                    return new_gid
             else:
-                # No face match: create new ID and save face
-                new_gid = self._create_new_identity(embedding)
-                self.face_recognition.save_face_embedding(new_gid, face_emb, frame)
-                print(f"[FaceRec] No face match → Created and assigned new ID: {new_gid}")
-                return new_gid
-        else:
-                    # No face detected and ReID failed: fallback → create new ID
-            new_gid = self._create_new_identity(embedding)
-            print(f"[ReID+FaceRec] No match → Assigned new ID: {new_gid}")
-            return new_gid
+                print("[Elevator] No face detected in fallback face recognition.")
+        
+        # ReID failed and no face fallback (or camera not elevator)
+        new_gid = self._create_new_identity(embedding)
+        print(f"[ReID+FaceRec] No match → Assigned new ID: {new_gid}")
+        return new_gid
+
 
 
     def _find_best_match(self, embedding: np.ndarray) -> str | None:

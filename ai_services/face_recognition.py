@@ -7,7 +7,7 @@ import cv2
 import os
 from scipy.spatial.distance import cosine
 class FaceRecognition:
-    def __init__(self, threshold: float = 0.3):
+    def __init__(self, threshold: float = 0.01):
         self.known_face_encodings: list[np.ndarray] = []
         self.known_face_ids: list[str] = []
         self.known_faces: dict[str, np.ndarray] = {}
