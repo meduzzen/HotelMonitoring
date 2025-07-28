@@ -64,36 +64,43 @@ class ReIDModel:
         best_gid = self._find_best_match(embedding)
 
         is_elevator = 'elevator' in camera_name.lower()
-        if is_elevator:
-            face_emb = self.face_recognition.extract_face_embedding(frame)
-            if face_emb is None:
-                print('note detected face')
-            if face_emb is not None:
-                face_id = self.face_recognition.find_matching_face_id(face_emb)
-                if face_id:
-                    print(f"[FaceRec] Existing face match found → Assigned ID: ")
-                    return face_id
-                else:
-                    new_gid = self._create_new_identity(embedding)
-                    self.face_recognition.save_face_embedding(new_gid, face_emb, frame)
-                    print(f"[FaceRec] New face → Assigned new ID: {new_gid}")
-                    return new_gid
-            else:
-                print("[FaceRec] No face detected in elevator frame.")
+
         if best_gid:
             self._update_embedding_buffer(best_gid, embedding)
-            '''if 'elevator' in camera_name.lower():
+
+            # if in elevator extract face and link it
+            if is_elevator:
                 face_emb = self.face_recognition.extract_face_embedding(frame)
-                print('note detected face')
                 if face_emb is not None:
-                    self.face_recognition.save_face_embedding(best_gid, face_emb)
-                    print(f"[FaceRec] Face embedding saved for existing body ID: {best_gid}")'''
-            # if camera is elevator
-            # make face recognition
-            # add face embedding(or something needed to recognize the persons face again) and assign to this face embedding the same face id as to the body
+                    self.face_recognition.save_face_embedding(best_gid, face_emb, frame)
+                    print(f"[Elevator] Face saved for existing ReID match: {best_gid}")
+                else:
+                    print("[Elevator] No face detected to link to existing ReID match.")
             return best_gid
-        print(f"[ReID] No match found → Assigned new ID: {new_gid}")
-        return self._create_new_identity(embedding)
+        
+        #reid failed try face recogntion
+        face_emb = self.face_recognition.extract_face_embedding(frame)
+        if face_emb is not None:
+            matching_face_id = self.face_recognition.find_matching_face_id(face_emb)
+            if matching_face_id:
+                print(f"[FaceRec] Face match found → Assigning existing face ID: {matching_face_id}")
+                if matching_face_id in self.embedding_db:
+                    self._update_embedding_buffer(matching_face_id, embedding)
+                else:
+                    self.embedding_db[matching_face_id] = deque([embedding], maxlen=self.buffer_size)
+                return matching_face_id
+            else:
+                # No face match: create new ID and save face
+                new_gid = self._create_new_identity(embedding)
+                self.face_recognition.save_face_embedding(new_gid, face_emb, frame)
+                print(f"[FaceRec] No face match → Created and assigned new ID: {new_gid}")
+                return new_gid
+        else:
+                    # No face detected and ReID failed: fallback → create new ID
+            new_gid = self._create_new_identity(embedding)
+            print(f"[ReID+FaceRec] No match → Assigned new ID: {new_gid}")
+            return new_gid
+
 
     def _find_best_match(self, embedding: np.ndarray) -> str | None:
         """Find the best matching global ID for the given embedding."""

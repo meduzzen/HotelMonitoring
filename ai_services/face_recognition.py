@@ -7,7 +7,7 @@ import cv2
 import os
 from scipy.spatial.distance import cosine
 class FaceRecognition:
-    def __init__(self, threshold: float = 0.5):
+    def __init__(self, threshold: float = 0.3):
         self.known_face_encodings: list[np.ndarray] = []
         self.known_face_ids: list[str] = []
         self.known_faces: dict[str, np.ndarray] = {}
@@ -37,10 +37,10 @@ class FaceRecognition:
                 face_crop = face["face"]
             # Get face embeddings
                 results = DeepFace.represent(
-                    img_path=image,
+                    img_path=face_crop,
                     model_name=self.model_name,
                     detector_backend='mediapipe',  # or 'retinaface', 'mtcnn'
-                    enforce_detection=False
+                    enforce_detection=True
                 )
                 if results and isinstance(results, list):
                     embedding = results[0]['embedding']
@@ -54,7 +54,7 @@ class FaceRecognition:
             print("No face embedding returned.")
             return None
         
-    def extract_face_crop(self, image: np.ndarray) -> np.ndarray | None:
+    '''def extract_face_crop(self, image: np.ndarray) -> np.ndarray | None:
         try:
             if image.shape[2] == 3:
                 image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
@@ -71,7 +71,7 @@ class FaceRecognition:
             return faces[0]['face']
         except Exception as e:
             print(f"[FaceCrop] Error: {e}")
-            return None
+            return None'''
 
 
     
