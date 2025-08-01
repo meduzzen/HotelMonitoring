@@ -91,11 +91,11 @@ class ReIDModel:
                     print(f"[FaceRec] Face match found → Assigning existing face ID: {matching_face_id}")
                     if matching_face_id in self.embedding_db:
                         self._update_embedding_buffer(matching_face_id, embedding)
-                    else:
-                        self.embedding_db[matching_face_id] = deque([embedding], maxlen=self.buffer_size)
-                    return matching_face_id
+
+                        return matching_face_id
                 else:
                     new_gid = self._create_new_identity(embedding)
+                    self.embedding_db[new_gid] = deque([embedding], maxlen=self.buffer_size)
                     self.face_recognition.save_face_embedding(new_gid, face_emb, frame)
                     print(f"[FaceRec] No face match → Created and assigned new ID: {new_gid}")
                     return new_gid

@@ -8,16 +8,16 @@ import os
 from scipy.spatial.distance import cosine
 import time
 class FaceRecognition:
-    def __init__(self, threshold: float = 0.01):
+    def __init__(self, threshold: float = 0.3):
         self.known_face_encodings: list[np.ndarray] = []
         self.known_face_ids: list[str] = []
         self.known_faces: dict[str, np.ndarray] = {}
         self.threshold = threshold
         self.metric = 'cosine'
-        self.model_name = 'Facenet'
+        self.model_name = 'Facenet512'
 
 
-    def extract_face_embedding(self, image: np.ndarray) -> np.ndarray | None:
+    def extract_face_embedding(self, image: np.ndarray) :
         try:
             # Get face embeddings
                 
@@ -29,8 +29,8 @@ class FaceRecognition:
                     align= True
                 )
             if results and isinstance(results, list):
-                    embedding = results[0]['embedding']
-                    return np.array(embedding)
+                    embeddings = [np.array(res['embedding']) for res in results]
+                    return embeddings
         except Exception as e:
             print(f"[FaceEmbedding] Error: {e}")
             return None
@@ -41,13 +41,21 @@ class FaceRecognition:
             return None
 
 
-    def extract_and_save_crop(self, image: np.ndarray) -> np.ndarray | None:
-        faces = DeepFace.extract_faces(
-            img_path=image,
-            detector_backend='mtcnn',
-            enforce_detection=True,
-            align=True
-            )
+    def extract_and_save_crop(self, image: np.ndarray, face_id) -> np.ndarray | None:
+        try:
+            faces = DeepFace.extract_faces(
+                img_path=image,
+                detector_backend='fastmtcnn',
+                enforce_detection=True,
+                align=True
+                )
+        except ValueError as e:
+            print(f"[FaceEmbedding] No face detected in frame. Skipping. ({e})")
+            return None
+        except Exception as e:
+            print(f"[FaceEmbedding] Unexpected error: {e}")
+            return None
+        
         if not faces:
             print("[FaceEmbedding] No faces detected.")
             return None
@@ -59,7 +67,7 @@ class FaceRecognition:
                 
             timing = time.time()
             # Save the face crop for inspections
-            save_path = os.path.join('faces/crops', f"face_{idx}_{timing}.jpg")
+            save_path = os.path.join('faces/crops', f"{face_id}_face_{idx}_{timing}.jpg")
             # Convert RGB to BGR for cv2.imwrite
             face_crop_bgr = cv2.cvtColor(face_crop_uint8, cv2.COLOR_RGB2BGR)
             cv2.imwrite(save_path, face_crop_bgr)
@@ -88,5 +96,8 @@ class FaceRecognition:
         return best_id
     
     def save_face_embedding(self, face_id: str, embedding: np.ndarray, face_image):
+        if face_id in self.known_faces:
+            print(f"[FaceRec] ID {face_id} already has embedding. Skipping save.")
+            return
         print(f"[FaceRec] Saving new face: {face_id}")
         self.known_faces[face_id] = embedding
