@@ -1,0 +1,12 @@
+services:
+  ai:
+    image: hotel:latest
+    container_name: hotel_monitoring_ai
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ['python', 'reindetification.py']  
+    volumes:
+      - ./reindetification.py:/fairmot/reindetification.py
+      - ./videos/cam1.mp4:/fairmot/videos/cam1.mp4
+      - ./videos/arch_7am.mp4:/fairmot/videos/arch_7am.mp4
