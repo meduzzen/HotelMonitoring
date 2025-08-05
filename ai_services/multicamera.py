@@ -52,12 +52,12 @@ class MultiCameraTracker:
             annotated_frame = camera.process_tracks(frame, self.reid_model)
             camera.write_frame(annotated_frame)
             # Optionally show frame:
-            cv2.imshow(cam_name, annotated_frame)
-            if cv2.waitKey(1) & 0xFF == ord('q'):
-                break
+            #cv2.imshow(cam_name, annotated_frame)
+            #if cv2.waitKey(1) & 0xFF == ord('q'):
+            #    break
         camera.cleanup()
 
     def _cleanup(self):
         for camera in self.cameras.values():
             camera.cleanup()
-        cv2.destroyAllWindows()
+        #cv2.destroyAllWindows()

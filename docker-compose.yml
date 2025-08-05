@@ -1,0 +1,9 @@
+services:
+  reid-tracker:
+    image: main-algoritm
+    container_name: main-algoritm-container
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ['python', 'reindetification.py']
+
