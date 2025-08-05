@@ -6,8 +6,8 @@ def main():
     # Configuration
 
     camera_configs = [
-        CameraConfig(camera_id=0, video_path="videos/cam1.mp4"),
-        CameraConfig(camera_id=1, video_path="videos/arch_7am.mp4"),
+        CameraConfig(camera_id=0, video_path="/fairmot/videos/cam1.mp4"),
+        CameraConfig(camera_id=1, video_path="/fairmot/videos/arch_7am.mp4"),
     ]
 
 

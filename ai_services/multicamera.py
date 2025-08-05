@@ -4,11 +4,14 @@ from typing import List
 import cv2
 
 from ai_services.process_camera import CameraProcessor, SharedMultiCameraTracker
+from ai_services.face_recognition import FaceRecognition
 from config.camera import CameraConfig
 import threading
 import torch
 
 device = torch.device("cpu")
+
+face_recog = FaceRecognition()
 def get_fairmot_opt(load_model_path, input_w, input_h, fps):
     class Struct:
         def __init__(self, **entries):
@@ -62,7 +65,7 @@ class MultiCameraTracker:
     """Main class for multi-camera person tracking system with threading."""
 
     def __init__(self, camera_configs: List[CameraConfig]):
-        tracker=SharedMultiCameraTracker(opt)
+        tracker=SharedMultiCameraTracker(opt, face_recog)
         self.cameras = {
             config.camera_id: CameraProcessor(config, tracker=tracker)
             for config in camera_configs

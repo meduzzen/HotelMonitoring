@@ -1,5 +1,5 @@
 
-FROM --platform=linux/amd64 python:3.8-slim
+FROM --platform=linux/amd64 python:3.8
 
 # Set working directory
 WORKDIR /fairmot
@@ -20,9 +20,7 @@ RUN apt-get update && apt-get install -y \
     libatlas-base-dev \
     gfortran \
     git \
-    && rm -rf /var/lib/apt/lists/* \
-    && git clone -b pytorch_1.7 https://github.com/ifzhang/DCNv2.git \
-    && ./DCNv2/make.sh
+    && rm -rf /var/lib/apt/lists/* 
     
     
 # Install pip packages
@@ -33,9 +31,13 @@ RUN pip install --no-cache-dir cython numpy==1.23.0
 RUN pip install --no-cache-dir -r requirements.txt
 
 
-RUN pip install torch==1.7.0 torchvision==0.8.0 -f https://download.pytorch.org/whl/torch_stable.html
+RUN pip install torch==1.7.0+cpu torchvision==0.8.0 -f https://download.pytorch.org/whl/torch_stable.html
+
+RUN git clone -b pytorch_1.7 https://github.com/ifzhang/DCNv2.git \
+    && cd DCNv2 \
+    && ./make.sh
 
 COPY . .
 
 
-CMD ["python", "reindetification.py"]
+CMD ["/bin/bash"]

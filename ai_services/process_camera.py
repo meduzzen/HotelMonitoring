@@ -11,16 +11,18 @@ from deep_sort_realtime.deepsort_tracker import DeepSort
 import torch
 from FairMOT.src.lib.tracker.multitracker import JDETracker, STrack
 from FairMOT.src.lib.opts import opts  # or wherever your option parser is
+from ai_services.face_recognition import FaceRecognition
 
 tracking_config = TrackingConfig()
 
 
 class SharedMultiCameraTracker:
-    def __init__(self, opts):
+    def __init__(self, opts, face_recog: FaceRecognition):
         self.global_tracks: List[STrack] = []
         self.trackers: Dict[int, JDETracker] = {}  # Changed to dict with cam_id as key
         self.opts = opts
         self.global_track_id = 0
+        self.face_recognition = face_recog
 
     def register_camera(self, cam_id: int) -> JDETracker:
         """Register a camera and return its tracker"""
@@ -42,6 +44,8 @@ class SharedMultiCameraTracker:
         online_targets = tracker.update(frame, img0)
 
         logger.info(f"[Cam {cam_id}] Detected {len(online_targets)} tracks this frame")
+
+        is_elevator = cam_id == 0
 
         # Match new tracks with global tracks
         for track in online_targets:
@@ -75,11 +79,48 @@ class SharedMultiCameraTracker:
                     f"[Cam {cam_id}] Track {track.track_id} matched with global ID {best_match.track_id} (dist={min_dist:.4f})")
                 track.track_id = best_match.track_id
                 best_match.curr_feat = track.curr_feat  # update embedding
-            if not matched:
-                self.global_track_id += 1
-                track.track_id = self.global_track_id
-                self.global_tracks.append(track)
-                logger.info(f"[Cam {cam_id}] Track {track.track_id} added as new global ID {self.global_track_id}")
+                if is_elevator and best_match.track_id not in self.face_recognition.known_faces:
+                    face_emb = self.face_recognition.extract_face_embedding(frame)
+                    if face_emb:
+                        self.face_recognition.save_face_embedding(best_match.track_id, face_emb, frame)
+                        logger.info(f"[Elevator] Face saved for existing ReID match: {best_match.track_id}")
+                    else:
+                        logger.warning("[Elevator] No face detected to link to existing ReID match.")
+
+            else:
+                if is_elevator:
+                    face_emb = self.face_recognition.extract_face_embedding(frame)
+                    if face_emb is not None:
+                        matching_face_id = self.face_recognition.find_matching_face_id(face_emb)
+                        if matching_face_id:
+                            logger.info(f"[FaceRec] Face match found → Assigning existing face ID: {matching_face_id}")
+                            track.track_id = matching_face_id
+
+                            # Search global_tracks and update body embedding
+                            for gtrack in self.global_tracks:
+                                if gtrack.track_id == matching_face_id:
+                                    logger.info(f"[Update] Updating body embedding for track ID {matching_face_id}")
+                                    gtrack.curr_feat = track.curr_feat
+                                    break
+                        else:
+                            # New face: assign new global track ID and save face embedding
+                            self.global_track_id += 1
+                            track.track_id = self.global_track_id
+                            self.global_tracks.append(track)
+                            self.face_recognition.save_face_embedding(track.track_id, face_emb, frame)
+                            logger.info(f"[FaceRec] No face match → Assigned new ID: {track.track_id}")
+                    else:
+                        # No face embedding found
+                        logger.warning(f"[FaceRec] No face detected for track {track.track_id}")
+                        self.global_track_id += 1
+                        track.track_id = self.global_track_id
+                        self.global_tracks.append(track)
+                else:
+                    # Non-elevator logic: assign new id
+                    self.global_track_id += 1
+                    track.track_id = self.global_track_id
+                    self.global_tracks.append(track)
+                    logger.info(f"[Cam {cam_id}] Track {track.track_id} added as new global ID {self.global_track_id}")
 
         return online_targets
 
