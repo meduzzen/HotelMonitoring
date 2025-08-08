@@ -28,7 +28,7 @@ class CameraProcessor:
         if config_camera.video_path:
             self.cap = cv2.VideoCapture(config_camera.video_path)
         elif config_camera.stream_url is not None:
-            self.cap = cv2.VideoCapture(config_camera.stream_url)
+            self.cap = cv2.VideoCapture(config_camera.stream_url, cv2.CAP_FFMPEG)
         else:
             raise ValueError("Either video_path or stream_url must be provided")
         self.fps = self.cap.get(cv2.CAP_PROP_FPS) or 25

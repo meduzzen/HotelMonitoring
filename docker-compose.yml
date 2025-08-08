@@ -1,0 +1,11 @@
+services:
+  reid-tracker:
+    image: analysis-elevator
+    container_name: main-algoritm-container
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - ./main.py:/app/main.py
+      - ./ai_services:/app/ai_services
+    # command: ['python', 'reindetification.py']
