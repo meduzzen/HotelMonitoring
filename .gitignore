@@ -215,3 +215,6 @@ custom_dataset*
 person*
 data_collection.py
 collection.py
+/results
+/FairMOT
+/archive

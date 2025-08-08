@@ -7,6 +7,7 @@ import cv2
 import os
 from scipy.spatial.distance import cosine
 import time
+from datetime import datetime
 class FaceRecognition:
     def __init__(self, threshold: float = 0.3):
         self.known_face_encodings: list[np.ndarray] = []
@@ -40,6 +41,8 @@ class FaceRecognition:
             print("No face embedding returned.")
             return None
 
+    def _get_current_timestamp(self) -> str:
+        return datetime.now().strftime('%Y-%m-%d_%H:%M:%S')
 
     def extract_and_save_crop(self, image: np.ndarray, face_id) -> np.ndarray | None:
         try:
@@ -55,23 +58,26 @@ class FaceRecognition:
         except Exception as e:
             print(f"[FaceEmbedding] Unexpected error: {e}")
             return None
-        
+        save_paths_list = []
         if not faces:
             print("[FaceEmbedding] No faces detected.")
             return None
-        os.makedirs('faces/crops', exist_ok=True)
+        os.makedirs('data_analysis/faces/crops', exist_ok=True)
 
         for idx, face in enumerate(faces):
             face_crop = face["face"]
             face_crop_uint8 = (face_crop * 255).astype(np.uint8)
                 
-            timing = time.time()
             # Save the face crop for inspections
-            save_path = os.path.join('faces/crops', f"{face_id}_face_{idx}_{timing}.jpg")
+            time_stamp = self._get_current_timestamp()
+            save_path = os.path.join('data_analysis/faces/crops', f"{face_id}_face_{idx}_{time_stamp}.jpg")
             # Convert RGB to BGR for cv2.imwrite
             face_crop_bgr = cv2.cvtColor(face_crop_uint8, cv2.COLOR_RGB2BGR)
             cv2.imwrite(save_path, face_crop_bgr)
             print(f"[FaceEmbedding] Saved face crop to {save_path}")
+            save_paths_list.append(save_path)
+        return save_paths_list
+        
     
     def find_matching_face_id(self, embedding: np.ndarray) -> str | None:
         if not self.known_faces:

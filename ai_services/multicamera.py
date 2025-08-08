@@ -58,7 +58,7 @@ class MultiCameraTracker:
 
             # Display and save frame
             #cv2.imshow(cam_name, annotated_frame)
-            camera.write_frame(annotated_frame)
+            '''camera.write_frame(annotated_frame)'''
             active_cameras.append(cam_name)
 
         return len(active_cameras) > 0

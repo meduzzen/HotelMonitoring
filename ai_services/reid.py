@@ -32,6 +32,7 @@ class ReIDModel:
         self.threshold = tracking_config.reid_threshold
         self.buffer_size = tracking_config.embedding_buffer_size
         self.face_recognition = face_recognition
+        self.failed_face_recognition_attempts = set()
 
     def _load_model(self) -> torch.nn.Module:
         model = torchreid.models.build_model(
@@ -59,53 +60,75 @@ class ReIDModel:
             normalized_feature = torch.nn.functional.normalize(feature, p=2, dim=1)
             return normalized_feature.cpu().numpy().flatten()
 
-    def assign_global_id(self, embedding: np.ndarray, camera_name: str, frame) -> str:
+    def assign_global_id(self, embedding: np.ndarray, camera_name: str, frame, frame_number) -> str:
         """Assign global ID based on embedding similarity."""
+        if not hasattr(self, 'failed_face_recognition_attempts'):
+            self.failed_face_recognition_attempts = set()
+
         best_gid = self._find_best_match(embedding)
+        print(f"Processing frame_number={frame_number} for best_gid={best_gid}")
 
-        is_elevator = 'elevator' in camera_name.lower()
-
+        try:
+            face_emb = self.face_recognition.extract_face_embedding(frame)
+        except Exception as e:
+            face_emb = None
+            print('No face detected')
+        face_crops = None
         if best_gid:
             self._update_embedding_buffer(best_gid, embedding)
-
-            # If ReID matched but no face embedding yet, and camera is elevator → save face embedding
-            if is_elevator and best_gid not in self.face_recognition.known_faces:
-                face_emb = self.face_recognition.extract_face_embedding(frame)
-                # use if want to see the result of detection and cropping
-                #self.face_recognition.extract_and_save_crop(frame)
-                if face_emb is not None:
-                    self.face_recognition.save_face_embedding(best_gid, face_emb, frame)
-                    print(f"[Elevator] Face saved for existing ReID match: {best_gid}")
-                else:
-                    print("[Elevator] No face detected to link to existing ReID match.")
-            return best_gid
-
-        # ReID failed — only try face recognition fallback if camera is elevator
-        if is_elevator:
-            face_emb = self.face_recognition.extract_face_embedding(frame)
-            # use if want to see the result of detection and cropping
-            #self.face_recognition.extract_and_save_crop(frame)
-            if face_emb is not None:
-                matching_face_id = self.face_recognition.find_matching_face_id(face_emb)
-                if matching_face_id:
-                    print(f"[FaceRec] Face match found → Assigning existing face ID: {matching_face_id}")
-                    if matching_face_id in self.embedding_db:
-                        self._update_embedding_buffer(matching_face_id, embedding)
-
-                        return matching_face_id
-                else:
-                    new_gid = self._create_new_identity(embedding)
-                    self.embedding_db[new_gid] = deque([embedding], maxlen=self.buffer_size)
-                    self.face_recognition.save_face_embedding(new_gid, face_emb, frame)
-                    print(f"[FaceRec] No face match → Created and assigned new ID: {new_gid}")
-                    return new_gid
+            key = (best_gid, frame_number)
+            if key in self.failed_face_recognition_attempts:
+                print(f"Skipping face recognition for ID {best_gid} at frame {frame_number} due to previous failure.")
             else:
-                print("[Elevator] No face detected in fallback face recognition.")
-        
-        # ReID failed and no face fallback (or camera not elevator)
+                try:
+                    face_crops = self.face_recognition.extract_and_save_crop(frame, best_gid)
+                    if face_emb is not None:
+                        self.face_recognition.save_face_embedding(best_gid, face_emb, frame)
+                        print(f"Face saved for existing ReID match: {best_gid}")
+                    else:
+                        print(f"No face detected for existing ReID match: {best_gid}")
+                        self.failed_face_recognition_attempts.add(key)
+                except Exception as e:
+                    print(f"Face extraction failed for {best_gid} at frame {frame_number}: {e}")
+                    self.failed_face_recognition_attempts.add(key)
+            return best_gid, face_crops
+
+        if face_emb is not None:
+            matching_face_id = self.face_recognition.find_matching_face_id(face_emb)
+            if matching_face_id:
+                print(f"[FaceRec] Face match found → Assigning existing face ID: {matching_face_id}")
+                if matching_face_id in self.embedding_db:
+                    self._update_embedding_buffer(matching_face_id, embedding)
+                key = (matching_face_id, frame_number)
+                if key in self.failed_face_recognition_attempts:
+                    print(f"Skipping face recognition for ID {matching_face_id} at frame {frame_number} due to previous failure.")
+                else:
+                    try:
+                        self.face_recognition.save_face_embedding(matching_face_id, face_emb, frame)
+                        face_crops = self.face_recognition.extract_and_save_crop(frame, face_id=matching_face_id)
+                    except Exception as e:
+                        print(f"Failed to save face for ID {matching_face_id} at frame {frame_number}: {e}")
+                        self.failed_face_recognition_attempts.add(key)
+                return matching_face_id, face_crops
+            else:
+                new_gid = self._create_new_identity(embedding)
+                self.embedding_db[new_gid] = deque([embedding], maxlen=self.buffer_size)
+                key = (new_gid, frame_number)
+                try:
+                    self.face_recognition.save_face_embedding(new_gid, face_emb, frame)
+                    face_crops = self.face_recognition.extract_and_save_crop(frame, face_id=new_gid)
+                except Exception as e:
+                    print(f"Failed to save face for new ID {new_gid} at frame {frame_number}: {e}")
+                    self.failed_face_recognition_attempts.add(key)
+                print(f"[FaceRec] No face match → Created and assigned new ID: {new_gid}")
+                return new_gid, face_crops
+
+        # ReID failed and no face fallback
         new_gid = self._create_new_identity(embedding)
+        self.embedding_db[new_gid] = deque([embedding], maxlen=self.buffer_size)
         print(f"[ReID+FaceRec] No match → Assigned new ID: {new_gid}")
-        return new_gid
+        return new_gid, face_crops
+
 
 
 
