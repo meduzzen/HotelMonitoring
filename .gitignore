@@ -213,5 +213,4 @@ videos/
 output_osnet*
 custom_dataset*
 person*
-data_collection.py
-collection.py
+archive
