@@ -23,7 +23,7 @@ class MultiCameraTracker:
         self.reid_model = ReIDModel(reid_model_path)
         self.detector = YOLO("models/yolov8s.pt").to(device)
         self.cameras = {
-            config.name: CameraProcessor(config)
+            config.camera_id: CameraProcessor(config)
             for config in camera_configs
         }
         self.threads = []

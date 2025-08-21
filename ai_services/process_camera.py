@@ -23,8 +23,7 @@ class CameraProcessor:
         self.fps = self.cap.get(cv2.CAP_PROP_FPS) or 25
         self.width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         self.height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-
-        # Initialize video writer
+        self.min_box_area = 30000
         output_filename = self._generate_output_filename()
         self.writer = cv2.VideoWriter(
             output_filename,
@@ -34,15 +33,16 @@ class CameraProcessor:
         )
 
         # Initialize tracker
-        self.tracker = DeepSort(max_age=tracking_config.max_age)
+        self.tracker = DeepSort(max_age=tracking_config.max_age, max_iou_distance=0.6) #можливо треба ще доналаштувати ці параметри
         self.frame_count = self.config.detection_interval-1
         self.max_frames = int(self.fps * config_camera.max_duration_seconds)
         self.last_tracks = []
         self.last_detection = []
+        self.track_to_global = {} #словник де track_id(який генерує deepsort) в парі з global_id (нашими айді)
 
     def _generate_output_filename(self) -> str:
         """Generate output video filename."""
-        return f"output_osnet_x1_0_{self.config.name}.mp4"
+        return f"output_osnet_x1_0_{self.config.camera_id}.mp4"
 
     def _preprocess_frame(self, frame: np.ndarray) -> np.ndarray:
         """Apply preprocessing to the frame."""
@@ -92,24 +92,31 @@ class CameraProcessor:
 
             x1, y1, x2, y2 = map(int, box)
             w, h = x2 - x1, y2 - y1
-            detections.append(([x1, y1, w, h], conf, 'person'))
+            vertical = w / h > 1.6
+            if w * h > self.min_box_area and not vertical: #валідація кропа за розміром та орієнтацією
+                detections.append(([x1, y1, w, h], conf, 'person'))
+            else:
+                continue
         return detections
 
     def process_tracks(self, frame: np.ndarray, reid_model: ReIDModel) -> np.ndarray:
         """Process tracks and add annotations to frame."""
         for track in self.last_tracks:
             try:
+                local_id = track.track_id
                 l, t, r, b = map(int, track.to_ltrb())
                 crop = frame[t:b, l:r]
-
+                global_id=self.track_to_global.get(local_id) #дізнаємось який зараз айді у цього треку
                 # Extract ReID embedding and assign global ID
-                embedding = reid_model.extract_embedding(crop)
-                global_id = reid_model.assign_global_id(embedding)
-
+                if self.frame_count % self.config.detection_interval == 0:
+                    embedding = reid_model.extract_embedding(crop)
+                    global_id = reid_model.assign_global_id(embedding, self.config.camera_id, global_id)
+                self.track_to_global[local_id] = global_id
                 # Draw bounding box and ID
                 self._draw_track_annotation(frame, l, t, r, b, global_id)
 
             except Exception as e:
+                print(e)
                 # Log error in production code
                 continue
 
