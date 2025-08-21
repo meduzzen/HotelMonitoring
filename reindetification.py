@@ -4,12 +4,12 @@ import time
 def main():
     """Main function to run the tracking system."""
     # Configuration
-    reid_model_path = 'models/model.pth.tar-30'
+    reid_model_path = 'models/model.pth.tar-40'
 
     camera_configs = [
-       CameraConfig(camera_id=1, video_path="videos/arka_corect.mp4"),
-        CameraConfig(camera_id=2, video_path="videos/elevator_2m.mp4"),
-        CameraConfig(camera_id=3, video_path="videos/enter_corect.mp4"),
+       CameraConfig(camera_id=1, video_path="videos/enter_22.mp4"),
+        #CameraConfig(camera_id=2, video_path="videos/elevator_2m.mp4"),
+        #CameraConfig(camera_id=3, video_path="videos/enter_corect.mp4"),
         #CameraConfig(camera_id=4, video_path="videos/reception_1m.mp4"),
     ]
 

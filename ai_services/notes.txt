@@ -1,0 +1,20 @@
+0: 384x640 2 persons, 2 cars, 1 bench, 2 potted plants, 55.0ms
+Speed: 2.0ms preprocess, 55.0ms inference, 67.4ms postprocess per image at shape (1, 3, 384, 640)
+[FRAME 240] DEEPSORT tracks:
+    LocalID=1 bbox=(1422, 41, 1531, 290)
+[FRAME 240] DEEPSORT tracks:
+    LocalID=2 bbox=(1307, 86, 1424, 359)
+[FRAME 240] Processing 2 tracks...
+Camera id: 1, best distance: 0.2081360693582135, best gid: e64c3356, current id: e64c3356
+    [ReID] Reusing same global ID for LocalID: e64c3356
+[DEBUG] used_gids_this_frame: {'e64c3356'}
+    LocalID=1 -> GlobalID=e64c3356
+Camera id: 1, best distance: 0.10302992310284065, best gid: e64c3356, current id: b809a342
+    [ReID] Match e64c3356 already taken in this frame -> forcing new ID
+    [ReID] Created new global ID -> 96b1b960
+[DEBUG] used_gids_this_frame: {'96b1b960', 'e64c3356'}
+    LocalID=2 -> GlobalID=96b1b960
+
+
+
+#TODO: If follwong situation occurs, search for the second best distance and under thershold and only then assign new id

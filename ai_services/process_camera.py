@@ -76,6 +76,12 @@ class CameraProcessor:
 
         # Update tracker
         self.last_tracks = self.tracker.update_tracks(self.last_detection, frame=frame)
+        
+        for track in self.last_tracks:
+            l,t,r,b = map(int, track.to_ltrb())
+            if self.frame_count % self.config.detection_interval == 0:
+                print(f"[FRAME {self.frame_count}] DEEPSORT tracks:")
+                print(f"    LocalID={track.track_id} bbox=({l}, {t}, {r}, {b})")
         return frame
 
     def _detect_persons(self, detector: YOLO, frame: np.ndarray) -> list[tuple]:
@@ -101,24 +107,46 @@ class CameraProcessor:
 
     def process_tracks(self, frame: np.ndarray, reid_model: ReIDModel) -> np.ndarray:
         """Process tracks and add annotations to frame."""
+        if self.frame_count % self.config.detection_interval == 0:
+            print(f"[FRAME {self.frame_count}] Processing {len(self.last_tracks)} tracks...")
+
+        #active_ids_before = set(self.track_to_global.values())
+        used_gids_this_frame: set[str] = set()
+
         for track in self.last_tracks:
             try:
                 local_id = track.track_id
                 l, t, r, b = map(int, track.to_ltrb())
                 crop = frame[t:b, l:r]
-                global_id=self.track_to_global.get(local_id) #дізнаємось який зараз айді у цього треку
+
+                current_gid=self.track_to_global.get(local_id) #дізнаємось який зараз айді у цього треку
                 # Extract ReID embedding and assign global ID
                 if self.frame_count % self.config.detection_interval == 0:
                     embedding = reid_model.extract_embedding(crop)
-                    global_id = reid_model.assign_global_id(embedding, self.config.camera_id, global_id)
-                self.track_to_global[local_id] = global_id
-                # Draw bounding box and ID
-                self._draw_track_annotation(frame, l, t, r, b, global_id)
+                    assigned_gid = reid_model.assign_global_id(embedding, self.config.camera_id, current_gid, active_ids=used_gids_this_frame)
+                    if assigned_gid:
+                        if assigned_gid in used_gids_this_frame:
+                            print(f"[ReID] {assigned_gid} already used in this frame, creating new one.")
+                            assigned_gid = reid_model._create_new_identity(embedding, self.config.camera_id)
 
+                        self.track_to_global[local_id] = assigned_gid
+                        used_gids_this_frame.add(assigned_gid)
+                    print(f"[DEBUG] used_gids_this_frame: {used_gids_this_frame}")
+                else:
+                    assigned_gid = current_gid
+
+                # Draw bounding box and ID
+                if self.frame_count % self.config.detection_interval == 0:
+                    print(f"    LocalID={local_id} -> GlobalID={assigned_gid}")
+
+                if assigned_gid:
+                    self._draw_track_annotation(frame, l, t, r, b, assigned_gid)
+                
             except Exception as e:
                 print(e)
                 # Log error in production code
                 continue
+
 
         return frame
 

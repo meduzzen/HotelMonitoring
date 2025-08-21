@@ -214,3 +214,5 @@ output_osnet*
 custom_dataset*
 person*
 archive
+archive.py
+test.txt
