@@ -64,9 +64,9 @@ class ReIDModel:
             return normalized_feature.cpu().numpy().flatten()
 
     def assign_global_id(self, embedding: np.ndarray, camera_id: int, current_id: str, active_ids:set[str]) -> str:
-        best_gid = self._find_best_match(embedding, camera_id, current_id)
+        candidates = self._find_best_match(embedding, camera_id, current_id)
 
-        if best_gid:
+        for best_gid, dist in candidates:
             # if already gid of this local track, keep
             if current_id == best_gid:
                 print(f"    [ReID] Reusing same global ID for LocalID: {best_gid}")
@@ -74,10 +74,9 @@ class ReIDModel:
                 return best_gid
             # only block if another track in this frame used it
             if best_gid in active_ids:
-                 print(f"    [ReID] Match {best_gid} already taken in this frame -> forcing new ID")
-                 best_gid = None
+                 print(f"    [ReID] Candidate {best_gid} (distance={dist:.4f}) already taken this frame, checking next...")
             else:
-                print(f"    [ReID] Match found -> {best_gid}")
+                print(f"    [ReID] Match found -> {best_gid} (distance= {dist:.4f})")
                 self._update_embedding_buffer(best_gid, embedding, camera_id)
                 return best_gid
 
@@ -89,10 +88,6 @@ class ReIDModel:
                 print(f"    [ReID] Match {best_gid} already taken in this frame -> forcing new ID")'''
         new_id = self._create_new_identity(embedding, camera_id)
 
-        if active_ids is not None:
-            while new_id in active_ids:
-                print(f"    [ReID] Collision detected: {new_id} already active -> generating new ID")
-                new_id = self._create_new_identity(embedding, camera_id)
         print(f"    [ReID] Created new global ID -> {new_id}")
         return new_id
 
@@ -107,6 +102,7 @@ class ReIDModel:
         best_distance = float('inf')
         now = time.time()
         match = False
+        candidates: list[tuple[str, float]] = []
 
         for gid, embedding_buffer in self.embedding_db.items():
 
@@ -122,22 +118,29 @@ class ReIDModel:
             else:
                 threshold = self.threshold*0.9 #для тієї ж камери трешхолд опускаємо
 
-            if gid == current_id: #окремо зберігаємо айді який зараз обробляється, якщо ніхто не перевершить відстань то
+            '''if gid == current_id: #окремо зберігаємо айді який зараз обробляється, якщо ніхто не перевершить відстань то
                 this_id_gid = gid #він і далі назначається треку, хоча відстань може і не проходити трешхолд
                 if distance < best_distance:
                     best_distance = distance
-                match = True
+                match = True'''
                 #print(f"Camera {camera_id}, last entry: {last_entry.camera_id}, gid: {gid}, current_id: {current_id}, distance: {distance}")
 
-            if distance < threshold and distance < best_distance: #без додаткової умови, ми переписуємл найкращу відстань, якщо втдстань просто нижче threshold
-                best_gid = gid
-                best_distance = distance
-            # print(f"Camera {camera_id}, last entry: {last_entry.camera_id}, gid: {gid}, current_id: {current_id}, distance: {distance}")
-        if best_gid is None and match:
-            best_gid = this_id_gid
+            if distance<threshold:
+                candidates.append((gid, distance))
 
-        print(f"Camera id: {camera_id}, best distance: {best_distance}, best gid: {best_gid}, current id: {current_id}")
-        return best_gid
+            
+            '''if distance < threshold and distance < best_distance: #без додаткової умови, ми переписуємл найкращу відстань, якщо втдстань просто нижче threshold
+                best_gid = gid
+                best_distance = distance'''
+            # print(f"Camera {camera_id}, last entry: {last_entry.camera_id}, gid: {gid}, current_id: {current_id}, distance: {distance}")
+        candidates.sort(key=lambda x: x[1])    
+        if not candidates and current_id in self.embedding_db:
+            avg_emb = np.mean([e.embedding for e in self.embedding_db[current_id]], axis=0)
+            best_distance = cosine(avg_emb, embedding)
+            candidates.append((current_id, best_distance))
+
+        print(f"Camera id: {camera_id}, best distance: {best_distance}, best gid: {candidates}, current id: {current_id}")
+        return candidates
 
 
 
