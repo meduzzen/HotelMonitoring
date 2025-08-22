@@ -7,6 +7,9 @@ from ai_services.reid import ReIDModel
 from config.camera import CameraConfig
 from deep_sort_realtime.deepsort_tracker import DeepSort
 import torch
+import os
+from datetime import datetime
+
 tracking_config= TrackingConfig()
 if torch.backends.mps.is_available():
     device = torch.device("mps")
@@ -19,23 +22,28 @@ class CameraProcessor:
 
     def __init__(self, config_camera: CameraConfig):
         self.config = config_camera
-        self.cap = cv2.VideoCapture(config_camera.video_path)
+        if config_camera.video_path:
+            self.cap = cv2.VideoCapture(config_camera.video_path)
+        elif config_camera.stream_url is not None:
+            self.cap = cv2.VideoCapture(config_camera.stream_url, cv2.CAP_FFMPEG)
+        else:
+            raise ValueError("Either video_path or stream_url must be provided")
         self.fps = self.cap.get(cv2.CAP_PROP_FPS) or 25
         self.width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         self.height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         self.min_box_area = 30000
-        output_filename = self._generate_output_filename()
+        '''output_filename = self._generate_output_filename()
         self.writer = cv2.VideoWriter(
             output_filename,
             cv2.VideoWriter_fourcc(*'mp4v'),
             self.fps,
             (self.width, self.height)
-        )
+        )'''
 
         # Initialize tracker
         self.tracker = DeepSort(max_age=tracking_config.max_age, max_iou_distance=0.8, n_init=10, max_cosine_distance=0.2) #можливо треба ще доналаштувати ці параметри
         self.frame_count = self.config.detection_interval-1
-        self.max_frames = int(self.fps * config_camera.max_duration_seconds)
+        self.max_frames = float("inf") if config_camera.stream_url else int(self.fps * config_camera.max_duration_seconds)
         self.last_tracks = []
         self.last_detection = []
         self.track_to_global = {} #словник де track_id(який генерує deepsort) в парі з global_id (нашими айді)
@@ -43,7 +51,7 @@ class CameraProcessor:
     def _generate_output_filename(self) -> str:
         """Generate output video filename."""
         return f"output_osnet_x1_0_{self.config.camera_id}.mp4"
-
+    
     def _preprocess_frame(self, frame: np.ndarray) -> np.ndarray:
         """Apply preprocessing to the frame."""
         # Apply bilateral filter for noise reduction while preserving edges
@@ -109,7 +117,7 @@ class CameraProcessor:
         """Process tracks and add annotations to frame."""
         if self.frame_count % self.config.detection_interval == 0:
             print(f"[FRAME {self.frame_count}] Processing {len(self.last_tracks)} tracks...")
-
+        timestamp = None
         #active_ids_before = set(self.track_to_global.values())
         used_gids_this_frame: set[str] = set()
 
@@ -136,13 +144,14 @@ class CameraProcessor:
                         print(f"[DEBUG] used_gids_this_frame: {used_gids_this_frame}")
                     else:
                         assigned_gid = current_gid
-
+                    timestamp = self.get_current_timestamp()
                     # Draw bounding box and ID
                     if self.frame_count % self.config.detection_interval == 0:
-                        print(f"    LocalID={local_id} -> GlobalID={assigned_gid}")
+                        print(f"    LocalID={local_id} -> GlobalID={assigned_gid}, time: {timestamp}")
 
                     if assigned_gid:
                         self._draw_track_annotation(frame, l, t, r, b, assigned_gid)
+                        self.save_body_crop(assigned_gid, crop, timestamp)
                 
             except Exception as e:
                 print(e)
@@ -158,12 +167,20 @@ class CameraProcessor:
         cv2.rectangle(frame, (l, t), (r, b), (0, 255, 0), 2)
         cv2.putText(frame, f"ID {global_id}", (l, t - 10),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 2)
-
     def write_frame(self, frame: np.ndarray) -> None:
         """Write frame to output video."""
         self.writer.write(frame)
+    def get_current_timestamp(self) -> str:
+        return datetime.now().strftime('%Y-%m-%d_%H:%M:%S:%f')[:-3]
 
+    def save_body_crop(self, global_id: str, crop: np.ndarray, timestamp: str):
+        os.makedirs(f"data_analysis/body_crop/{global_id}/", exist_ok=True)
+        path = f"data_analysis/body_crop/{global_id}/{timestamp.replace('.', '_')}_id_{global_id}.jpg"
+        cv2.imwrite(path, crop)
+        #print(f"[SAVE] Body crop saved to {path}")
+        return path
+    
     def cleanup(self) -> None:
         """Release resources."""
         self.cap.release()
-        self.writer.release()
+        #self.writer.release()

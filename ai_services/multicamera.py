@@ -50,7 +50,8 @@ class MultiCameraTracker:
             if frame is None:
                 break
             annotated_frame = camera.process_tracks(frame, self.reid_model)
-            camera.write_frame(annotated_frame)
+            #removed writing the video
+            #camera.write_frame(annotated_frame)
             # Optionally show frame:
             #cv2.imshow(cam_name, annotated_frame)
             #if cv2.waitKey(1) & 0xFF == ord('q'):
