@@ -33,7 +33,7 @@ class CameraProcessor:
         )
 
         # Initialize tracker
-        self.tracker = DeepSort(max_age=tracking_config.max_age, max_iou_distance=0.6) #можливо треба ще доналаштувати ці параметри
+        self.tracker = DeepSort(max_age=tracking_config.max_age, max_iou_distance=0.8, n_init=10, max_cosine_distance=0.2) #можливо треба ще доналаштувати ці параметри
         self.frame_count = self.config.detection_interval-1
         self.max_frames = int(self.fps * config_camera.max_duration_seconds)
         self.last_tracks = []
@@ -88,12 +88,12 @@ class CameraProcessor:
         """Detect persons in the frame."""
         detections = []
         results = detector(frame, device= device)
-
+        CONF_THRESHOLD = 0.5
         for i, box in enumerate(results[0].boxes.xyxy):
             cls = int(results[0].boxes.cls[i])
             conf = float(results[0].boxes.conf[i])
             # Only process person class (class 0)
-            if cls != 0:
+            if cls != 0 or conf<CONF_THRESHOLD:
                 continue
 
             x1, y1, x2, y2 = map(int, box)
@@ -118,29 +118,31 @@ class CameraProcessor:
                 local_id = track.track_id
                 l, t, r, b = map(int, track.to_ltrb())
                 crop = frame[t:b, l:r]
+                vertical = (r-l) / (b-t) > 1.6
+                if (r-l) * (b-t)>self.min_box_area and not vertical:
+                    print((r-l) * (b-t))
+                    current_gid=self.track_to_global.get(local_id) #дізнаємось який зараз айді у цього треку
+                    # Extract ReID embedding and assign global ID
+                    if self.frame_count % self.config.detection_interval == 0:
+                        embedding = reid_model.extract_embedding(crop)
+                        assigned_gid = reid_model.assign_global_id(embedding, self.config.camera_id, current_gid, active_ids=used_gids_this_frame)
+                        if assigned_gid:
+                            if assigned_gid in used_gids_this_frame:
+                                print(f"[ReID] {assigned_gid} already used in this frame, creating new one.")
+                                assigned_gid = reid_model._create_new_identity(embedding, self.config.camera_id)
 
-                current_gid=self.track_to_global.get(local_id) #дізнаємось який зараз айді у цього треку
-                # Extract ReID embedding and assign global ID
-                if self.frame_count % self.config.detection_interval == 0:
-                    embedding = reid_model.extract_embedding(crop)
-                    assigned_gid = reid_model.assign_global_id(embedding, self.config.camera_id, current_gid, active_ids=used_gids_this_frame)
+                            self.track_to_global[local_id] = assigned_gid
+                            used_gids_this_frame.add(assigned_gid)
+                        print(f"[DEBUG] used_gids_this_frame: {used_gids_this_frame}")
+                    else:
+                        assigned_gid = current_gid
+
+                    # Draw bounding box and ID
+                    if self.frame_count % self.config.detection_interval == 0:
+                        print(f"    LocalID={local_id} -> GlobalID={assigned_gid}")
+
                     if assigned_gid:
-                        if assigned_gid in used_gids_this_frame:
-                            print(f"[ReID] {assigned_gid} already used in this frame, creating new one.")
-                            assigned_gid = reid_model._create_new_identity(embedding, self.config.camera_id)
-
-                        self.track_to_global[local_id] = assigned_gid
-                        used_gids_this_frame.add(assigned_gid)
-                    print(f"[DEBUG] used_gids_this_frame: {used_gids_this_frame}")
-                else:
-                    assigned_gid = current_gid
-
-                # Draw bounding box and ID
-                if self.frame_count % self.config.detection_interval == 0:
-                    print(f"    LocalID={local_id} -> GlobalID={assigned_gid}")
-
-                if assigned_gid:
-                    self._draw_track_annotation(frame, l, t, r, b, assigned_gid)
+                        self._draw_track_annotation(frame, l, t, r, b, assigned_gid)
                 
             except Exception as e:
                 print(e)
