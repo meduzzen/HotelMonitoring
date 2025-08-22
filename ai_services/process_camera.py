@@ -2,6 +2,7 @@ import cv2
 import numpy as np
 from ultralytics import YOLO
 
+from config.logging import setup_camera_logger
 from config.tracking import TrackingConfig
 from ai_services.reid import ReIDModel
 from config.camera import CameraConfig
@@ -47,6 +48,7 @@ class CameraProcessor:
         self.last_tracks = []
         self.last_detection = []
         self.track_to_global = {} #словник де track_id(який генерує deepsort) в парі з global_id (нашими айді)
+        self.logger = setup_camera_logger(config_camera.camera_id)
 
     def _generate_output_filename(self) -> str:
         """Generate output video filename."""
@@ -88,8 +90,12 @@ class CameraProcessor:
         for track in self.last_tracks:
             l,t,r,b = map(int, track.to_ltrb())
             if self.frame_count % self.config.detection_interval == 0:
-                print(f"[FRAME {self.frame_count}] DEEPSORT tracks:")
-                print(f"    LocalID={track.track_id} bbox=({l}, {t}, {r}, {b})")
+                self.logger.info({
+                    "event": "track_detected",
+                    "frame": self.frame_count,
+                    "local_id": track.track_id,
+                    "bbox": [l, t, r, b]
+                })
         return frame
 
     def _detect_persons(self, detector: YOLO, frame: np.ndarray) -> list[tuple]:
@@ -127,35 +133,40 @@ class CameraProcessor:
                 l, t, r, b = map(int, track.to_ltrb())
                 crop = frame[t:b, l:r]
                 vertical = (r-l) / (b-t) > 1.6
-                if (r-l) * (b-t)>self.min_box_area and not vertical:
-                    print((r-l) * (b-t))
-                    current_gid=self.track_to_global.get(local_id) #дізнаємось який зараз айді у цього треку
+                if (r-l) * (b-t) > self.min_box_area and not vertical:
+                    current_gid = self.track_to_global.get(local_id) #дізнаємось який зараз айді у цього треку
                     # Extract ReID embedding and assign global ID
                     if self.frame_count % self.config.detection_interval == 0:
                         embedding = reid_model.extract_embedding(crop)
-                        assigned_gid = reid_model.assign_global_id(embedding, self.config.camera_id, current_gid, active_ids=used_gids_this_frame)
+                        assigned_gid = reid_model.assign_global_id(embedding, self.config.camera_id, current_gid, used_gids_this_frame, self.logger)
                         if assigned_gid:
                             if assigned_gid in used_gids_this_frame:
-                                print(f"[ReID] {assigned_gid} already used in this frame, creating new one.")
                                 assigned_gid = reid_model._create_new_identity(embedding, self.config.camera_id)
 
                             self.track_to_global[local_id] = assigned_gid
                             used_gids_this_frame.add(assigned_gid)
-                        print(f"[DEBUG] used_gids_this_frame: {used_gids_this_frame}")
                     else:
                         assigned_gid = current_gid
                     timestamp = self.get_current_timestamp()
+                    self.logger.info({
+                        "event": "reid_assignment",
+                        "frame": self.frame_count,
+                        "local_id": local_id,
+                        "global_id": assigned_gid,
+                        "timestamp": timestamp,
+                        "used_gids": list(used_gids_this_frame)
+                    })
                     # Draw bounding box and ID
-                    if self.frame_count % self.config.detection_interval == 0:
-                        print(f"    LocalID={local_id} -> GlobalID={assigned_gid}, time: {timestamp}")
-
                     if assigned_gid:
                         self._draw_track_annotation(frame, l, t, r, b, assigned_gid)
                         self.save_body_crop(assigned_gid, crop, timestamp)
-                
+
             except Exception as e:
-                print(e)
-                # Log error in production code
+                self.logger.error({
+                    "event": "error",
+                    "frame": self.frame_count,
+                    "error": str(e)
+                })
                 continue
 
 

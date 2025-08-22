@@ -63,20 +63,40 @@ class ReIDModel:
             normalized_feature = torch.nn.functional.normalize(feature, p=2, dim=1)
             return normalized_feature.cpu().numpy().flatten()
 
-    def assign_global_id(self, embedding: np.ndarray, camera_id: int, current_id: str, active_ids:set[str]) -> str:
+    def assign_global_id(self, embedding: np.ndarray, camera_id: int, current_id: str, active_ids:set[str], logger) -> str:
         candidates = self._find_best_match(embedding, camera_id, current_id)
 
         for best_gid, dist in candidates:
             # if already gid of this local track, keep
             if current_id == best_gid:
-                print(f"    [ReID] Reusing same global ID for LocalID: {best_gid}")
+                logger.info({
+                    "event": "reuse_global_id",
+                    "camera_id": camera_id,
+                    "local_id": current_id,
+                    "global_id": best_gid,
+                    "distance": float(dist),
+                    "note": "Reusing same global ID"
+                })
                 self._update_embedding_buffer(best_gid, embedding, camera_id)
                 return best_gid
             # only block if another track in this frame used it
             if best_gid in active_ids:
-                 print(f"    [ReID] Candidate {best_gid} (distance={dist:.4f}) already taken this frame, checking next...")
+                logger.info({
+                    "event": "id_conflict",
+                    "camera_id": camera_id,
+                    "local_id": current_id,
+                    "candidate_global_id": best_gid,
+                    "distance": float(dist),
+                    "note": "Candidate already taken in this frame"
+                })
             else:
-                print(f"    [ReID] Match found -> {best_gid} (distance= {dist:.4f})")
+                logger.info({
+                    "event": "match_found",
+                    "local_id": current_id,
+                    "global_id": best_gid,
+                    "distance": float(dist),
+                    "note": "Assigned existing global ID"
+                })
                 self._update_embedding_buffer(best_gid, embedding, camera_id)
                 return best_gid
 
@@ -88,7 +108,12 @@ class ReIDModel:
                 print(f"    [ReID] Match {best_gid} already taken in this frame -> forcing new ID")'''
         new_id = self._create_new_identity(embedding, camera_id)
 
-        print(f"    [ReID] Created new global ID -> {new_id}")
+        logger.info({
+            "event": "new_identity",
+            "local_id": current_id,
+            "global_id": new_id,
+            "note": "Created new global ID"
+        })
         return new_id
 
     def _find_best_match(self, embedding: np.ndarray, camera_id: int, current_id : str) -> str | None:
