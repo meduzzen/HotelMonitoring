@@ -7,6 +7,7 @@ from ai_services.reid import ReIDModel
 from config.camera import CameraConfig
 from deep_sort_realtime.deepsort_tracker import DeepSort
 import torch
+import subprocess
 tracking_config= TrackingConfig()
 if torch.backends.mps.is_available():
     device = torch.device("mps")
@@ -19,26 +20,52 @@ class CameraProcessor:
 
     def __init__(self, config_camera: CameraConfig):
         self.config = config_camera
-        self.cap = cv2.VideoCapture(config_camera.video_path)
+        if config_camera.video_path:
+            self.cap = cv2.VideoCapture(config_camera.video_path)
+        elif config_camera.stream_url is not None:
+            self.cap = cv2.VideoCapture(config_camera.stream_url, cv2.CAP_FFMPEG)
+        else:
+            raise ValueError("Either video_path or stream_url must be provided")
         self.fps = self.cap.get(cv2.CAP_PROP_FPS) or 25
         self.width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         self.height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         self.min_box_area = 30000
         output_filename = self._generate_output_filename()
-        self.writer = cv2.VideoWriter(
-            output_filename,
-            cv2.VideoWriter_fourcc(*'mp4v'),
-            self.fps,
-            (self.width, self.height)
-        )
+        if config_camera.video_path:
+            self.writer = cv2.VideoWriter(
+                output_filename,
+                cv2.VideoWriter_fourcc(*'mp4v'),
+                self.fps,
+                (self.width, self.height)
+            )
+        else:
+            ffmpeg_cmd = [
+                "ffmpeg",
+                "-y",
+                "-f", "rawvideo",
+                "-vcodec", "rawvideo",
+                "-pix_fmt", "bgr24",
+                "-s", f"{self.width}x{self.height}",
+                "-r", str(int(self.fps)),
+                "-i", "-",
+                "-c:v", "libx264",
+                "-preset", "veryfast",
+                "-f", "flv",  # or "rtsp" depending on server
+                config_camera.output_url
+            ]
+            self.writer = subprocess.Popen(ffmpeg_cmd, stdin=subprocess.PIPE)
+
 
         # Initialize tracker
         self.tracker = DeepSort(max_age=tracking_config.max_age, max_iou_distance=0.8, n_init=10, max_cosine_distance=0.2) #можливо треба ще доналаштувати ці параметри
         self.frame_count = self.config.detection_interval-1
-        self.max_frames = int(self.fps * config_camera.max_duration_seconds)
+        self.max_frames = float("inf") if config_camera.stream_url else int(self.fps * config_camera.max_duration_seconds)
         self.last_tracks = []
         self.last_detection = []
         self.track_to_global = {} #словник де track_id(який генерує deepsort) в парі з global_id (нашими айді)
+
+    def write_frame(self, frame:np.ndarray):
+        self.writer.write(frame)
 
     def _generate_output_filename(self) -> str:
         """Generate output video filename."""
