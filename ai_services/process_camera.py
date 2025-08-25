@@ -49,8 +49,8 @@ class CameraProcessor:
                 "-r", str(int(self.fps)),
                 "-i", "-",
                 "-c:v", "libx264",
-                "-preset", "veryfast",
-                "-f", "flv",  
+                "-preset", "ultrafast",
+                "-f", "rtsp",  
                 config_camera.output_url
             ]
             self.writer = subprocess.Popen(ffmpeg_cmd, stdin=subprocess.PIPE)

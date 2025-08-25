@@ -7,10 +7,10 @@ def main():
     reid_model_path = 'models/model.pth.tar-40'
 
     camera_configs = [
-       CameraConfig(camera_id=1, stream_url="", output_url=""),
-        #CameraConfig(camera_id=2, video_path="videos/elevator_2m.mp4"),
-        #CameraConfig(camera_id=3, video_path="videos/enter_corect.mp4"),
-        #CameraConfig(camera_id=4, video_path="videos/reception_1m.mp4"),
+    #    CameraConfig(camera_id=1, stream_url="", output_url=""),
+        CameraConfig(camera_id=2, stream_url="rtsp://admin:tEsTgfhjkm1729@10.0.0.21:554/cam/realmonitor?channel=1&subtype=1", output_url="rtsp://mediamtx:8554/cam/elev"),
+        # CameraConfig(camera_id=3, stream_url="rtsp://admin:tEsTgfhjkm1729@192.168.12.167:554/cam/realmonitor?channel=1&subtype=1", output_url="rtsp://mediamtx:8554/cam/enter"),
+        # CameraConfig(camera_id=4, stream_url="rtsp://admin:tEsTgfhjkm1729@192.168.12.20:554/cam/realmonitor?channel=1&subtype=1", output_url="rtsp://mediamtx:8554/cam/reception"),
     ]
 
     start_time = time.time()

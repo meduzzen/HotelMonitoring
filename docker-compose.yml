@@ -1,13 +1,30 @@
 services:
+  mediamtx:
+    image: bluenviron/mediamtx:1.13.0
+    container_name: mediamtx
+    ports:
+      - 8554:8554
+    volumes:
+      - ./resources/mediamtx.yml:/mediamtx.yml
+    networks:
+      - kate_hotel
+    restart: unless-stopped
+
   reid-tracker:
     image: main-algoritm
     container_name: main-algoritm-container
     build:
       context: .
       dockerfile: Dockerfile
-    command: ['python', 'reindetification.py']
+    networks:
+      - kate_hotel
     volumes:
-      - ./reindetification.py:/app/reindetification.py
-      - ./config/camera.py:/app/config/camera.py
-      - ./videos/arch_7am_no.mp4:/app/videos/arch_7am_no.mp4
+      - ./models:/app/models
+      - ./ai_services/process_camera.py:/app/ai_services/process_camera.py
+      - ./config/camera.py:/app/config/camera.py 
+      - ./main.py:/app/main.py
+      - ./ai_services/multicamera.py:/app/ai_services/multicamera.py
 
+networks:
+  kate_hotel:
+    external: true

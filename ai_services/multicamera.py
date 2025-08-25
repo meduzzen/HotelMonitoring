@@ -21,7 +21,7 @@ class MultiCameraTracker:
 
     def __init__(self, reid_model_path: str, camera_configs: list[CameraConfig]):
         self.reid_model = ReIDModel(reid_model_path)
-        self.detector = YOLO("models/yolov8l.pt").to(device)
+        self.detector = YOLO("models/yolov8s.pt").to(device)
         self.cameras = {
             config.camera_id: CameraProcessor(config)
             for config in camera_configs
