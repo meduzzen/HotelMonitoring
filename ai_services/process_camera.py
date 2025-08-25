@@ -65,8 +65,6 @@ class CameraProcessor:
         self.last_detection = []
         self.track_to_global = {} #словник де track_id(який генерує deepsort) в парі з global_id (нашими айді)
 
-    def write_frame(self, frame:np.ndarray):
-        self.writer.write(frame)
 
     def _generate_output_filename(self) -> str:
         """Generate output video filename."""
