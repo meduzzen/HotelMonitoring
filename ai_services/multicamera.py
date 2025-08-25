@@ -48,7 +48,7 @@ class MultiCameraTracker:
         while True:
             frame = camera.process_frame(self.detector)
             if frame is None:
-                break
+                continue
             annotated_frame = camera.process_tracks(frame, self.reid_model)
             #removed writing the video
             #camera.write_frame(annotated_frame)
