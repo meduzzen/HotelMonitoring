@@ -189,7 +189,10 @@ class CameraProcessor:
 
     def write_frame(self, frame: np.ndarray) -> None:
         """Write frame to output video."""
-        self.writer.write(frame)
+        if self.stream:
+             self.writer.stdin.write(frame.tobytes())
+        else:
+            self.writer.write(frame)
 
     def cleanup(self) -> None:
         """Release resources."""
