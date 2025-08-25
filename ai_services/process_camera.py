@@ -50,10 +50,11 @@ class CameraProcessor:
                 "-i", "-",
                 "-c:v", "libx264",
                 "-preset", "veryfast",
-                "-f", "flv",  # or "rtsp" depending on server
+                "-f", "flv",  
                 config_camera.output_url
             ]
             self.writer = subprocess.Popen(ffmpeg_cmd, stdin=subprocess.PIPE)
+            self.stream = True
 
 
         # Initialize tracker
@@ -193,4 +194,8 @@ class CameraProcessor:
     def cleanup(self) -> None:
         """Release resources."""
         self.cap.release()
-        self.writer.release()
+        if self.stream:
+            self.writer.stdin.close()
+            self.writer.wait()
+        else:
+            self.writer.release()
