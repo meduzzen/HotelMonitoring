@@ -2,13 +2,18 @@ from ai_services.multicamera import MultiCameraTracker
 from config.camera import CameraConfig
 import time
 
+
 def main():
     """Main function to run the tracking system."""
     # Configuration
-    reid_model_path = 'models/model.pth.tar-30'
+    reid_model_path = "models/model.pth.tar-30"
 
     camera_configs = [
-        CameraConfig(camera_id=1, stream_url="rtsp://admin:tEsTgfhjkm1729@10.0.0.21:554/cam/realmonitor?channel=1&subtype=1"),
+        # CameraConfig(camera_id=1, video_path="videos/enter_corect.mp4"), #1 камера це вхід в готель
+        # CameraConfig(camera_id=2, video_path="videos/arka_corect.mp4"),
+        CameraConfig(
+            camera_id=3, video_path="videos/elevator_2m.mp4"
+        ),  # 3 камера це ліфт
     ]
 
     # Initialize and run tracker
@@ -16,7 +21,9 @@ def main():
     start = time.time()
     tracker.run()
     end = time.time()
-    elapsed = end-start
-    print(f'needed {elapsed:.2f}')
+    elapsed = end - start
+    print(f"needed {elapsed:.2f}")
+
+
 if __name__ == "__main__":
     main()

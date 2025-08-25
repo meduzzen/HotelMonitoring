@@ -2,6 +2,7 @@ import logging
 import os
 from pythonjsonlogger import jsonlogger
 
+
 def setup_camera_logger(camera_id: int) -> logging.Logger:
     os.makedirs("logs", exist_ok=True)
     log_file = f"logs/camera_{camera_id}.json"
@@ -11,7 +12,9 @@ def setup_camera_logger(camera_id: int) -> logging.Logger:
 
     if not logger.handlers:
         fh = logging.FileHandler(log_file, mode="a")
-        formatter = jsonlogger.JsonFormatter("%(asctime)s %(name)s %(levelname)s %(message)s")
+        formatter = jsonlogger.JsonFormatter(
+            "%(asctime)s %(name)s %(levelname)s %(message)s"
+        )
         fh.setFormatter(formatter)
         logger.addHandler(fh)
 

@@ -1,5 +1,3 @@
-import cv2
-
 from ultralytics import YOLO
 
 from ai_services.process_camera import CameraProcessor
@@ -21,10 +19,10 @@ class MultiCameraTracker:
 
     def __init__(self, reid_model_path: str, camera_configs: list[CameraConfig]):
         self.reid_model = ReIDModel(reid_model_path)
-        self.detector = YOLO("models/yolov8l.pt").to(device)
+        self.detector = YOLO("models/yolov8n.pt").to(device)
+        self.detector.model.fuse()
         self.cameras = {
-            config.camera_id: CameraProcessor(config)
-            for config in camera_configs
+            config.camera_id: CameraProcessor(config) for config in camera_configs
         }
         self.threads = []
 
@@ -32,7 +30,10 @@ class MultiCameraTracker:
         """Run multi-camera tracking in parallel threads."""
         try:
             for cam_name, camera in self.cameras.items():
-                t = threading.Thread(target=self._process_camera_loop, args=(cam_name, camera))
+                print("Open thread")
+                t = threading.Thread(
+                    target=self._process_camera_loop, args=(cam_name, camera)
+                )
                 t.start()
                 self.threads.append(t)
 
@@ -45,20 +46,21 @@ class MultiCameraTracker:
 
     def _process_camera_loop(self, cam_name, camera):
         """Process one camera in a loop inside a thread."""
+        print(f"Processing camera {cam_name}")
         while True:
             frame = camera.process_frame(self.detector)
             if frame is None:
-                continue
+                print(f"None frame {cam_name}")
+                break
             annotated_frame = camera.process_tracks(frame, self.reid_model)
-            #removed writing the video
-            #camera.write_frame(annotated_frame)
+            camera.write_frame(annotated_frame)
             # Optionally show frame:
-            #cv2.imshow(cam_name, annotated_frame)
-            #if cv2.waitKey(1) & 0xFF == ord('q'):
+            # cv2.imshow(cam_name, annotated_frame)
+            # if cv2.waitKey(1) & 0xFF == ord('q'):
             #    break
         camera.cleanup()
 
     def _cleanup(self):
         for camera in self.cameras.values():
             camera.cleanup()
-        #cv2.destroyAllWindows()
+        # cv2.destroyAllWindows()

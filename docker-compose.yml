@@ -10,4 +10,3 @@ services:
       - ./reindetification.py:/app/reindetification.py
       - ./config/camera.py:/app/config/camera.py
       - ./videos/arch_7am_no.mp4:/app/videos/arch_7am_no.mp4
-
