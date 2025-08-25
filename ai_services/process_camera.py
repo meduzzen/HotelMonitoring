@@ -72,7 +72,7 @@ class CameraProcessor:
         """Process a single frame and return it if successful."""
         ret, frame = self.cap.read()
 
-        if (not ret or self.frame_count >= self.max_frames) and self.config.video_path:
+        if not ret or self.frame_count >= self.max_frames:
             return None
 
 
