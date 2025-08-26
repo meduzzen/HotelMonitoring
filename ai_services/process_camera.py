@@ -30,6 +30,7 @@ class CameraProcessor:
         self.width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         self.height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         self.min_box_area = 30000
+        self.stream = False
         output_filename = self._generate_output_filename()
         if config_camera.video_path:
             self.writer = cv2.VideoWriter(
@@ -64,6 +65,7 @@ class CameraProcessor:
         self.last_tracks = []
         self.last_detection = []
         self.track_to_global = {} #словник де track_id(який генерує deepsort) в парі з global_id (нашими айді)
+        self.last_decoded_frame = None
 
 
     def _generate_output_filename(self) -> str:
@@ -86,29 +88,39 @@ class CameraProcessor:
 
     def process_frame(self, detector: YOLO) -> np.ndarray | None:
         """Process a single frame and return it if successful."""
-        ret, frame = self.cap.read()
-
-        if not ret or self.frame_count >= self.max_frames:
+        #ret, frame = self.cap.read()
+        grabbed = self.cap.grab()
+        if not grabbed or self.frame_count >= self.max_frames:
             return None
 
         
         self.frame_count += 1
-
+        frame = None
         # Perform detection periodically
         if self.frame_count % self.config.detection_interval == 0:
+            ret, frame = self.cap.retrieve()
+            if not ret:
+                return None
             frame = self._preprocess_frame(frame)
+            self.last_decoded_frame = frame.copy()
+
             detections = self._detect_persons(detector, frame)
             self.last_detection = detections
 
         # Update tracker
-        self.last_tracks = self.tracker.update_tracks(self.last_detection, frame=frame)
-        
-        for track in self.last_tracks:
-            l,t,r,b = map(int, track.to_ltrb())
-            if self.frame_count % self.config.detection_interval == 0:
-                print(f"[FRAME {self.frame_count}] DEEPSORT tracks:")
-                print(f"    LocalID={track.track_id} bbox=({l}, {t}, {r}, {b})")
-        return frame
+            self.last_tracks = self.tracker.update_tracks(self.last_detection, frame=frame)
+            
+            for track in self.last_tracks:
+                l,t,r,b = map(int, track.to_ltrb())
+                # if self.frame_count % self.config.detection_interval == 0:
+                    # print(f"[FRAME {self.frame_count}] DEEPSORT tracks:")
+                    # print(f"    LocalID={track.track_id} bbox=({l}, {t}, {r}, {b})")
+            return frame
+        else:
+            if hasattr(self, 'last_decoded_frame'):
+                self.last_tracks = self.tracker.update_tracks(self.last_detection, frame=self.last_decoded_frame)
+
+            return self.last_decoded_frame
 
     def _detect_persons(self, detector: YOLO, frame: np.ndarray) -> list[tuple]:
         """Detect persons in the frame."""
@@ -133,8 +145,9 @@ class CameraProcessor:
 
     def process_tracks(self, frame: np.ndarray, reid_model: ReIDModel) -> np.ndarray:
         """Process tracks and add annotations to frame."""
-        if self.frame_count % self.config.detection_interval == 0:
-            print(f"[FRAME {self.frame_count}] Processing {len(self.last_tracks)} tracks...")
+        annotated = frame.copy()
+        # if self.frame_count % self.config.detection_interval == 0:
+            # print(f"[FRAME {self.frame_count}] Processing {len(self.last_tracks)} tracks...")
 
         #active_ids_before = set(self.track_to_global.values())
         used_gids_this_frame: set[str] = set()
@@ -146,7 +159,6 @@ class CameraProcessor:
                 crop = frame[t:b, l:r]
                 vertical = (r-l) / (b-t) > 1.6
                 if (r-l) * (b-t)>self.min_box_area and not vertical:
-                    print((r-l) * (b-t))
                     current_gid=self.track_to_global.get(local_id) #дізнаємось який зараз айді у цього треку
                     # Extract ReID embedding and assign global ID
                     if self.frame_count % self.config.detection_interval == 0:
@@ -154,29 +166,29 @@ class CameraProcessor:
                         assigned_gid = reid_model.assign_global_id(embedding, self.config.camera_id, current_gid, active_ids=used_gids_this_frame)
                         if assigned_gid:
                             if assigned_gid in used_gids_this_frame:
-                                print(f"[ReID] {assigned_gid} already used in this frame, creating new one.")
+                                # print(f"[ReID] {assigned_gid} already used in this frame, creating new one.")
                                 assigned_gid = reid_model._create_new_identity(embedding, self.config.camera_id)
 
                             self.track_to_global[local_id] = assigned_gid
                             used_gids_this_frame.add(assigned_gid)
-                        print(f"[DEBUG] used_gids_this_frame: {used_gids_this_frame}")
+                        # print(f"[DEBUG] used_gids_this_frame: {used_gids_this_frame}")
                     else:
                         assigned_gid = current_gid
 
                     # Draw bounding box and ID
-                    if self.frame_count % self.config.detection_interval == 0:
-                        print(f"    LocalID={local_id} -> GlobalID={assigned_gid}")
+                    # if self.frame_count % self.config.detection_interval == 0:
+                        # print(f"    LocalID={local_id} -> GlobalID={assigned_gid}")
 
                     if assigned_gid:
-                        self._draw_track_annotation(frame, l, t, r, b, assigned_gid)
-                
+                        self._draw_track_annotation(annotated , l, t, r, b, assigned_gid)
+
             except Exception as e:
-                print(e)
+                # print(e)
                 # Log error in production code
                 continue
 
 
-        return frame
+        return  annotated
 
     def _draw_track_annotation(self, frame: np.ndarray, l: int, t: int,
                                r: int, b: int, global_id: str) -> None:

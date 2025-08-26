@@ -24,6 +24,7 @@ services:
       - ./config/camera.py:/app/config/camera.py 
       - ./main.py:/app/main.py
       - ./ai_services/multicamera.py:/app/ai_services/multicamera.py
+      - ./ai_services/reid.py:/app/ai_services/reid.py
 
 networks:
   kate_hotel:
