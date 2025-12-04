@@ -1,7 +1,9 @@
-from ai_services.collection import CropSaver
 from ultralytics import YOLO
-import torch 
+import torch
+
 from config.camera import CameraConfig
+from ai_services.collection import CropSaver
+
 
 def main():
     # Example: video input and folder output
@@ -22,6 +24,7 @@ def main():
     detector = YOLO("models/yolov8s.pt").to(device)
     crop_saver = CropSaver(config, output_folder)
     crop_saver.process_and_save_crops(detector)
+
 
 if __name__ == "__main__":
     main()

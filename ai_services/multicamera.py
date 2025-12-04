@@ -1,12 +1,12 @@
-import cv2
+import threading
 
+import torch
 from ultralytics import YOLO
 
 from ai_services.process_camera import CameraProcessor
 from ai_services.reid import ReIDModel
 from config.camera import CameraConfig
-import threading
-import torch
+
 
 if torch.backends.mps.is_available():
     device = torch.device("mps")
@@ -23,8 +23,7 @@ class MultiCameraTracker:
         self.reid_model = ReIDModel(reid_model_path)
         self.detector = YOLO("models/yolov8s.pt").to(device)
         self.cameras = {
-            config.camera_id: CameraProcessor(config)
-            for config in camera_configs
+            config.camera_id: CameraProcessor(config) for config in camera_configs
         }
         self.threads = []
 
@@ -32,7 +31,9 @@ class MultiCameraTracker:
         """Run multi-camera tracking in parallel threads."""
         try:
             for cam_name, camera in self.cameras.items():
-                t = threading.Thread(target=self._process_camera_loop, args=(cam_name, camera))
+                t = threading.Thread(
+                    target=self._process_camera_loop, args=(cam_name, camera)
+                )
                 t.start()
                 self.threads.append(t)
 
@@ -52,12 +53,12 @@ class MultiCameraTracker:
             annotated_frame = camera.process_tracks(frame, self.reid_model)
             camera.write_frame(annotated_frame)
             # Optionally show frame:
-            #cv2.imshow(cam_name, annotated_frame)
-            #if cv2.waitKey(1) & 0xFF == ord('q'):
+            # cv2.imshow(cam_name, annotated_frame)
+            # if cv2.waitKey(1) & 0xFF == ord('q'):
             #    break
         camera.cleanup()
 
     def _cleanup(self):
         for camera in self.cameras.values():
             camera.cleanup()
-        #cv2.destroyAllWindows()
+        # cv2.destroyAllWindows()
