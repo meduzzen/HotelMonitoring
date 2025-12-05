@@ -20,11 +20,16 @@ class MultiCameraTracker:
     """Main class for multi-camera person tracking system with threading."""
 
     def __init__(self, reid_model_path: str, camera_configs: list[CameraConfig]):
+        # Initialize shared models
         self.reid_model = ReIDModel(reid_model_path)
         self.detector = YOLO("models/yolov8s.pt").to(device)
+
+        # Initialize cameras with required arguments
         self.cameras = {
-            config.camera_id: CameraProcessor(config) for config in camera_configs
+            config.camera_id: CameraProcessor(config, self.detector, self.reid_model)
+            for config in camera_configs
         }
+
         self.threads = []
 
     def run(self) -> None:
@@ -47,15 +52,10 @@ class MultiCameraTracker:
     def _process_camera_loop(self, cam_name, camera):
         """Process one camera in a loop inside a thread."""
         while True:
-            frame = camera.process_frame(self.detector)
+            frame = camera.process_next_frame()
             if frame is None:
                 break
-            annotated_frame = camera.process_tracks(frame, self.reid_model)
-            camera.write_frame(annotated_frame)
-            # Optionally show frame:
-            # cv2.imshow(cam_name, annotated_frame)
-            # if cv2.waitKey(1) & 0xFF == ord('q'):
-            #    break
+            camera.write_frame(frame)
         camera.cleanup()
 
     def _cleanup(self):
