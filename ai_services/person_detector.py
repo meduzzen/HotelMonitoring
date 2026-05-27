@@ -16,7 +16,7 @@ device = (
 class PersonDetector:
     """Wraps YOLO person detection."""
 
-    CONF_THRESHOLD = 0.5
+    CONF_THRESHOLD = 0.1
 
     def __init__(self, detector: YOLO):
         self.detector = detector
@@ -28,7 +28,7 @@ class PersonDetector:
         Returns:
             List of tuples: ([x, y, w, h], confidence, "person")
         """
-        results = self.detector(frame, device=device)
+        results = self.detector(frame, imgsz=1088, iou=0.6)
         detections = []
 
         for box, cls, conf in zip(

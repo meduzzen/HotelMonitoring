@@ -13,23 +13,25 @@ def main():
     reid_model_path = "models/model.pth.tar-40"
 
     camera_configs = [
-        # CameraConfig(camera_id=1, video_path='videos/Untitled1.mp4'),
-        CameraConfig(camera_id=2, video_path="videos/Untitled.mp4"),
+        # CameraConfig(camera_id=1, video_path='15546948_1080_1920_50fps.mp4'),
+        # CameraConfig(camera_id=2, video_path="VIRAT_S_050201_05_000890_000944.mp4"),
+        # CameraConfig(camera_id=3, video_path="VIRAT_S_010204_05_000856_000890.mp4"),
         CameraConfig(camera_id=3, video_path="videos/Untitled2.mp4"),
         # CameraConfig(camera_id=4, stream_url="rtsp://admin:tEsTgfhjkm1729@192.168.12.20:554/cam/realmonitor?channel=1&subtype=1", output_url="rtsp://mediamtx:8554/cam/reception"),
     ]
 
-    start_time = time.time()
-
-    # Initialize and run tracker
-
+    print("--- Phase 1: Loading Models & Environments ---")
     tracker = MultiCameraTracker(reid_model_path, camera_configs)
+
+    print("\n--- Phase 2: Processing Video Streams ---")
+    start_time = time.time()
 
     tracker.run()
 
     end_time = time.time()
-
-    print(f"result time {end_time - start_time:.2f}")
+    print(
+        f"\nProcessing complete. Pure execution time: {end_time - start_time:.2f} seconds"
+    )
 
 
 if __name__ == "__main__":

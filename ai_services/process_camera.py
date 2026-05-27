@@ -60,13 +60,14 @@ class CameraProcessor:
             return None
 
         self.frame_count += 1
-        if self.frame_count % self.config.detection_interval == 0:
-            frame = self.source.retrieve()
-            if frame is None:
-                return None
-            frame = self.processor.preprocess(frame)
-            self.last_frame = frame.copy()
 
+        frame = self.source.retrieve()
+        if frame is None:
+            return None
+        frame = self.processor.preprocess(frame)
+
+        if self.frame_count % self.config.detection_interval == 0:
+            self.last_frame = frame.copy()
             detections = self.detector.detect(frame)
             self.tracker.update(
                 frame,
@@ -77,16 +78,15 @@ class CameraProcessor:
                 self.config.camera_id,
             )
         else:
-            frame = self.last_frame
-            if frame is not None:
-                self.tracker.update(
-                    frame,
-                    [],
-                    self.reid_model,
-                    self.frame_count,
-                    self.config.detection_interval,
-                    self.config.camera_id,
-                )
+            # Pass empty detections to the tracker, but still use the current frame
+            self.tracker.update(
+                frame,
+                [],
+                self.reid_model,
+                self.frame_count,
+                self.config.detection_interval,
+                self.config.camera_id,
+            )
 
         return frame
 
