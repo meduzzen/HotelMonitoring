@@ -216,3 +216,16 @@ archive
 archive.py
 test.txt
 *.pt
+*.mp4
+*.json
+*.mlmodel
+*.bin
+*.xml
+*.yaml
+.DS_Store
+/google_video/
+detect_roi.py
+*.ipynb
+test*
+*.csv
+*crowdhuman
