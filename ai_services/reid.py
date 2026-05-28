@@ -1,4 +1,5 @@
 import uuid
+import cv2
 import time
 from collections import deque
 from typing import Deque
@@ -6,12 +7,11 @@ from typing import Deque
 import torch
 import numpy as np
 import torchreid
-from scipy.spatial.distance import cosine
-from torchvision import transforms
-from torchvision.transforms import InterpolationMode
+
 
 from config.tracking import TrackingConfig
 from schema.embedding import EmbeddingEntry
+from db.analytics import AnalyticsDB
 
 tracking_config = TrackingConfig()
 
@@ -22,17 +22,35 @@ elif torch.cuda.is_available():
 else:
     device = torch.device("cpu")
 
+# ImageNet normalisation constants as tensors (computed once)
+_MEAN = torch.tensor([0.485, 0.456, 0.406], device=device).view(3, 1, 1)
+_STD = torch.tensor([0.229, 0.224, 0.225], device=device).view(3, 1, 1)
+
 
 class ReIDModel:
     """Improved ReID model with consistent ID assignment and threshold management."""
 
-    def __init__(self, model_path: str):
+    def __init__(self, model_path: str, db: AnalyticsDB | None = None):
         self.model_path = model_path
+        self.db = db
         self.model = self._load_model()
-        self.transform = self._create_transform()
-        self.embedding_db: dict[str, Deque[EmbeddingEntry]] = {}
         self.threshold = tracking_config.reid_threshold
         self.buffer_size = tracking_config.embedding_buffer_size
+        self.ttl = tracking_config.embedding_ttl_seconds
+
+        # global_id -> deque[EmbeddingEntry]
+        self.embedding_db: dict[str, Deque[EmbeddingEntry]] = {}
+        # global_id -> cached mean np.ndarray  (invalidated on buffer update)
+        self._mean_cache: dict[str, np.ndarray] = {}
+        # staff IDs are never expired by TTL
+        self.staff_ids: set[str] = set()
+
+        # Restore identities from DB (survives restarts)
+        self._load_embeddings_from_db()
+
+    # ------------------------------------------------------------------
+    # Model loading
+    # ------------------------------------------------------------------
 
     def _load_model(self) -> torch.nn.Module:
         """Load and initialize the ReID model."""
@@ -45,57 +63,121 @@ class ReIDModel:
         model.to(device)
         return model
 
-    def _create_transform(self) -> transforms.Compose:
-        """Create image transformation pipeline."""
-        return transforms.Compose(
-            [
-                transforms.ToPILImage(),
-                transforms.Resize((256, 128), interpolation=InterpolationMode.BICUBIC),
-                transforms.ToTensor(),
-                transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
-            ]
-        )
+    def _load_embeddings_from_db(self) -> None:
+        """Restore embedding buffers from DB on startup (skips stale entries)."""
+        if not self.db:
+            return
+        min_ts = (time.time() - self.ttl) if self.ttl > 0 else 0.0
+        stored = self.db.load_embeddings(min_timestamp=min_ts)
+        for gid, entries in stored.items():
+            # Keep only the newest buffer_size entries
+            entries = entries[-self.buffer_size :]
+            buf: Deque[EmbeddingEntry] = deque(maxlen=self.buffer_size)
+            for emb, ts, cam_id in entries:
+                buf.append(
+                    EmbeddingEntry(embedding=emb, timestamp=ts, camera_id=cam_id)
+                )
+            self.embedding_db[gid] = buf
+        if stored:
+            print(f"[ReID] Restored {len(stored)} identities from DB")
+        if self.db:
+            self.staff_ids = self.db.get_staff_ids()
+            if self.staff_ids:
+                print(
+                    f"[ReID] {len(self.staff_ids)} staff member(s) loaded: {self.staff_ids}"
+                )
+
+    # ------------------------------------------------------------------
+    # Embedding extraction  (OpenCV pipeline, no PIL)
+    # ------------------------------------------------------------------
 
     def extract_embedding(self, crop: np.ndarray) -> np.ndarray:
+        """Extract L2-normalised feature vector from a BGR crop."""
+        # Resize with OpenCV (much faster than PIL BICUBIC for small crops)
+        resized = cv2.resize(crop, (128, 256), interpolation=cv2.INTER_LINEAR)
+        # BGR -> RGB, HWC -> CHW, uint8 -> float32 [0,1]
+        rgb = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
+        tensor = torch.from_numpy(rgb).permute(2, 0, 1).float().div(255.0)
+        # ImageNet normalisation
+        tensor = (tensor.to(device) - _MEAN) / _STD
+        input_batch = tensor.unsqueeze(0)
+
         with torch.no_grad():
-            input_tensor = self.transform(crop).unsqueeze(0).to(device)
-            feature = self.model(input_tensor)
-            normalized_feature = torch.nn.functional.normalize(feature, p=2, dim=1)
-            return normalized_feature.cpu().numpy().flatten()
+            feature = self.model(input_batch)
+            normalised = torch.nn.functional.normalize(feature, p=2, dim=1)
+        return normalised.cpu().numpy().flatten()
+
+    # ------------------------------------------------------------------
+    # ID assignment
+    # ------------------------------------------------------------------
 
     def assign_global_id(
         self,
         embedding: np.ndarray,
         camera_id: int,
-        current_id: str,
+        current_id: str | None,
         active_ids: set[str],
+        logger=None,
     ) -> str:
+        self._cleanup_stale_identities()
         candidates = self._find_best_match(embedding, camera_id, current_id)
 
         for best_gid, dist in candidates:
-            # if already gid of this local track, keep
+            # Same track as before — keep the ID
             if current_id == best_gid:
-                # print(f"    [ReID] Reusing same global ID for LocalID: {best_gid}")
                 self._update_embedding_buffer(best_gid, embedding, camera_id)
+                if logger:
+                    logger.info(
+                        {
+                            "event": "reuse_global_id",
+                            "camera_id": camera_id,
+                            "global_id": best_gid,
+                            "distance": float(dist),
+                        }
+                    )
                 return best_gid
-            # only block if another track in this frame used it
+
+            # Candidate is free — assign it
             if best_gid not in active_ids:
-                # print(f"    [ReID] Candidate {best_gid} (distance={dist:.4f}) already taken this frame, checking next...")
-                # else:
-                # print(f"    [ReID] Match found -> {best_gid} (distance= {dist:.4f})")
                 self._update_embedding_buffer(best_gid, embedding, camera_id)
+                if logger:
+                    logger.info(
+                        {
+                            "event": "match_found",
+                            "camera_id": camera_id,
+                            "global_id": best_gid,
+                            "distance": float(dist),
+                        }
+                    )
                 return best_gid
 
-            """if not active_ids or best_gid not in active_ids:
-                # print(f"    [ReID] Match found -> {best_gid}")
-                self._update_embedding_buffer(best_gid, embedding, camera_id)
-                return best_gid
-            else:
-                # print(f"    [ReID] Match {best_gid} already taken in this frame -> forcing new ID")"""
+            # Candidate already taken by another track this frame — try next
+            if logger:
+                logger.info(
+                    {
+                        "event": "id_conflict",
+                        "camera_id": camera_id,
+                        "candidate_global_id": best_gid,
+                        "distance": float(dist),
+                        "note": "Candidate already taken — trying next",
+                    }
+                )
+
         new_id = self._create_new_identity(embedding, camera_id)
-
-        # print(f"    [ReID] Created new global ID -> {new_id}")
+        if logger:
+            logger.info(
+                {
+                    "event": "new_identity",
+                    "camera_id": camera_id,
+                    "global_id": new_id,
+                    "note": "No valid match found",
+                }
+            )
         return new_id
+
+    # ------------------------------------------------------------------
+    # Matching
+    # ------------------------------------------------------------------
 
     def _find_best_match(
         self, embedding: np.ndarray, camera_id: int, current_id: str
@@ -107,69 +189,188 @@ class ReIDModel:
         threshold = self.threshold
         # best_gid = None
         # this_id_gid = None
-        best_distance = float("inf")
+        # best_distance = float("inf")
         now = time.time()
-        # match = False
         candidates: list[tuple[str, float]] = []
 
-        for gid, embedding_buffer in self.embedding_db.items():
-            avg_embedding = np.mean([e.embedding for e in embedding_buffer], axis=0)
+        for gid, buf in self.embedding_db.items():
+            avg = self._get_mean_embedding(gid)
 
-            distance = cosine(avg_embedding, embedding)
+            # Cosine distance for L2-normalised vectors = 1 - dot product
+            distance = 1.0 - float(np.dot(avg, embedding))
 
-            last_entry = embedding_buffer[-1]
-            if (
-                last_entry.camera_id != camera_id
-            ):  # якшо айді знаходиться на камері умовно 2 то
-                time_diff = (
-                    now - last_entry.timestamp
-                )  # він може бути присутній на камері 1 якщо не пройшов якийсь час (зараз 1 секунда)
-                if time_diff < 1.0:
+            last_entry = buf[-1]
+            if last_entry.camera_id != camera_id:
+                # Person was last seen on a different camera less than 1s ago
+                if (now - last_entry.timestamp) < 1.0:
                     continue
+                threshold = self.threshold
             else:
-                threshold = self.threshold * 0.9  # для тієї ж камери трешхолд опускаємо
-
-            """if gid == current_id: #окремо зберігаємо айді який зараз обробляється, якщо ніхто не перевершить відстань то
-                this_id_gid = gid #він і далі назначається треку, хоча відстань може і не проходити трешхолд
-                if distance < best_distance:
-                    best_distance = distance
-                match = True"""
-            ## print(f"Camera {camera_id}, last entry: {last_entry.camera_id}, gid: {gid}, current_id: {current_id}, distance: {distance}")
+                # Same camera → tighter threshold
+                threshold = self.threshold * 0.9  # local variable, not mutating self
 
             if distance < threshold:
                 candidates.append((gid, distance))
 
-            """if distance < threshold and distance < best_distance: #без додаткової умови, ми переписуємл найкращу відстань, якщо втдстань просто нижче threshold
-                best_gid = gid
-                best_distance = distance"""
-            # # print(f"Camera {camera_id}, last entry: {last_entry.camera_id}, gid: {gid}, current_id: {current_id}, distance: {distance}")
-        candidates.sort(key=lambda x: x[1])
-        if not candidates and current_id in self.embedding_db:
-            avg_emb = np.mean(
-                [e.embedding for e in self.embedding_db[current_id]], axis=0
-            )
-            best_distance = cosine(avg_emb, embedding)
-            candidates.append((current_id, best_distance))
+        # If no candidate found but current_id exists, keep it regardless of distance
+        if not candidates and current_id and current_id in self.embedding_db:
+            avg = self._get_mean_embedding(current_id)
+            distance = 1.0 - float(np.dot(avg, embedding))
+            candidates.append((current_id, distance))
 
-        # print(f"Camera id: {camera_id}, best distance: {best_distance}, best gid: {candidates}, current id: {current_id}")
+        candidates.sort(key=lambda x: x[1])
         return candidates
+
+    # ------------------------------------------------------------------
+    # Buffer management
+    # ------------------------------------------------------------------
 
     def _update_embedding_buffer(
         self, gid: str, embedding: np.ndarray, camera_id: int
     ) -> None:
-        """Update the embedding buffer for a given global ID."""
-        entry = EmbeddingEntry(
-            embedding=embedding, timestamp=time.time(), camera_id=camera_id
-        )
-        if len(self.embedding_db[gid]) >= self.buffer_size:
-            self.embedding_db[gid].popleft()
-        self.embedding_db[gid].append(entry)
+        ts = time.time()
+        entry = EmbeddingEntry(embedding=embedding, timestamp=ts, camera_id=camera_id)
+        buf = self.embedding_db[gid]
+        if len(buf) >= self.buffer_size:
+            buf.popleft()
+        buf.append(entry)
+        # Invalidate cached mean
+        self._mean_cache.pop(gid, None)
+        # Persist to DB and trim old rows
+        if self.db:
+            self.db.save_embedding(gid, embedding, camera_id, ts)
+            self.db.prune_old_embeddings(gid, self.buffer_size)
 
     def _create_new_identity(self, embedding: np.ndarray, camera_id: int) -> str:
-        """Create a new global identity."""
+        ts = time.time()
         new_gid = str(uuid.uuid4())[:8]
-        entry = EmbeddingEntry(
-            embedding=embedding, timestamp=time.time(), camera_id=camera_id
-        )
+        entry = EmbeddingEntry(embedding=embedding, timestamp=ts, camera_id=camera_id)
         self.embedding_db[new_gid] = deque([entry], maxlen=self.buffer_size)
+        self._mean_cache.pop(new_gid, None)
+        # Persist to DB
+        if self.db:
+            self.db.save_embedding(new_gid, embedding, camera_id, ts)
         return new_gid
+
+    def _get_mean_embedding(self, gid: str) -> np.ndarray:
+        """Return cached mean embedding, computing it only when cache is cold."""
+        if gid not in self._mean_cache:
+            buf = self.embedding_db[gid]
+            self._mean_cache[gid] = np.mean([e.embedding for e in buf], axis=0)
+        return self._mean_cache[gid]
+
+    def _cleanup_stale_identities(self) -> None:
+        """Remove identities that haven't been seen for longer than TTL."""
+        if self.ttl <= 0:
+            return
+        now = time.time()
+        stale = [
+            gid
+            for gid, buf in self.embedding_db.items()
+            if gid not in self.staff_ids  # staff embeddings never expire
+            and (now - buf[-1].timestamp) > self.ttl
+        ]
+        for gid in stale:
+            del self.embedding_db[gid]
+            self._mean_cache.pop(gid, None)
+            if self.db:
+                self.db.delete_identity_embeddings(gid)
+
+
+class ReIDTracker:
+    """
+    Orchestrates per-frame ReID across all tracks of a single camera.
+
+    Responsibilities:
+        - extract embeddings from track crops
+        - assign / maintain global IDs via ReIDModel
+        - own the track_id → global_id mapping
+
+    CameraProcessor passes skip_ids (elevator, edge-of-frame) so this class
+    stays camera-agnostic.
+    """
+
+    def __init__(self, model: ReIDModel):
+        self.model = model
+        self.track_to_global: dict[int, str] = {}
+
+    # ------------------------------------------------------------------
+    # Main entry point (called once per frame)
+    # ------------------------------------------------------------------
+
+    def process_tracks(
+        self,
+        tracks: list,
+        frame: np.ndarray,
+        camera_id: int,
+        is_detection_frame: bool,
+        skip_ids: set[int],
+        min_box_area: int,
+        logger=None,
+    ) -> None:
+        """
+        Extract embeddings and assign global IDs for all eligible tracks.
+        Updates track_to_global in-place; call get_global_id() afterwards.
+
+        Args:
+            tracks:             DeepSort track list for this frame
+            frame:              current BGR frame
+            camera_id:          camera identifier
+            is_detection_frame: run ReID only on detection frames
+            skip_ids:           track IDs to exclude (elevator / edge conditions)
+            min_box_area:       minimum crop area to process
+            logger:             optional logger
+        """
+        if not is_detection_frame:
+            return
+
+        frame_h, frame_w = frame.shape[:2]
+        used_gids: set[str] = set()
+
+        for track in tracks:
+            local_id = track.track_id
+            if local_id in skip_ids:
+                continue
+
+            l, t, r, b = map(int, track.to_ltrb())
+            l, t = max(0, l), max(0, t)
+            r, b = min(frame_w, r), min(frame_h, b)
+
+            if r <= l or b <= t:
+                continue
+            if (r - l) * (b - t) <= min_box_area:
+                continue
+
+            crop = frame[t:b, l:r]
+            current_gid = self.track_to_global.get(local_id)
+
+            try:
+                embedding = self.model.extract_embedding(crop)
+                assigned_gid = self.model.assign_global_id(
+                    embedding, camera_id, current_gid, used_gids, logger
+                )
+                if assigned_gid:
+                    # Resolve conflict: ID already taken by another track this frame
+                    if assigned_gid in used_gids and assigned_gid != current_gid:
+                        assigned_gid = self.model._create_new_identity(
+                            embedding, camera_id
+                        )
+                    self.track_to_global[local_id] = assigned_gid
+                    used_gids.add(assigned_gid)
+
+            except Exception as e:
+                if logger:
+                    logger.error(
+                        {"event": "reid_error", "track_id": local_id, "error": str(e)}
+                    )
+
+    # ------------------------------------------------------------------
+    # Accessors
+    # ------------------------------------------------------------------
+
+    def get_global_id(self, track_id: int) -> str | None:
+        return self.track_to_global.get(track_id)
+
+    def cleanup_track(self, track_id: int) -> None:
+        """Call when DeepSort drops a track."""
+        self.track_to_global.pop(track_id, None)

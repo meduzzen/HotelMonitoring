@@ -16,17 +16,30 @@ class FrameProcessor:
         return frame
 
     @staticmethod
-    def annotate(frame: np.ndarray, l: int, t: int, r: int, b: int, global_id: str):
-        """Draw bounding box and global ID."""
-        cv2.rectangle(frame, (l, t), (r, b), (0, 255, 0), 2)
+    def annotate(
+        frame: np.ndarray,
+        l: int,
+        t: int,
+        r: int,
+        b: int,
+        global_id: str,
+        is_staff: bool = False,
+    ):
+        """Draw bounding box and label. Staff get a distinct colour and label."""
+        color = (
+            (0, 200, 255) if is_staff else (0, 220, 0)
+        )  # amber for staff, green for guests
+        label = global_id if is_staff else f"ID {global_id[:3]}"
+
+        cv2.rectangle(frame, (l, t), (r, b), color, 1)  # thickness 2 → 1
         cv2.putText(
             frame,
-            f"ID {global_id}",
-            (l, t - 10),
+            label,
+            (l, t - 5),
             cv2.FONT_HERSHEY_SIMPLEX,
-            0.6,
-            (0, 0, 0),
-            2,
+            0.4,  # font scale 0.6 → 0.4
+            color,
+            1,  # thickness 2 → 1
         )
 
     @staticmethod
@@ -35,8 +48,8 @@ class FrameProcessor:
         height, width = frame.shape[:2]
         text = f"People: {count}"
         font = cv2.FONT_HERSHEY_SIMPLEX
-        font_scale = 1
-        thickness = 2
+        font_scale = 0.65
+        thickness = 1
 
         (text_width, text_height), baseline = cv2.getTextSize(
             text, font, font_scale, thickness

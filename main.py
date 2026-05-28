@@ -1,37 +1,37 @@
-from ai_services.multicamera import MultiCameraTracker
-
-from config.camera import CameraConfig
-
 import time
+
+from ai_services.multicamera import MultiCameraTracker
+from config.camera import CameraConfig
 
 
 def main():
     """Main function to run the tracking system."""
-
-    # Configuration
-
-    reid_model_path = "models/model.pth.tar-40"
+    reid_model_path = "models/model.pth.tar-30"
 
     camera_configs = [
-        # CameraConfig(camera_id=1, video_path='15546948_1080_1920_50fps.mp4'),
-        # CameraConfig(camera_id=2, video_path="VIRAT_S_050201_05_000890_000944.mp4"),
-        # CameraConfig(camera_id=3, video_path="VIRAT_S_010204_05_000856_000890.mp4"),
-        CameraConfig(camera_id=3, video_path="videos/Untitled2.mp4"),
-        # CameraConfig(camera_id=4, stream_url="rtsp://admin:tEsTgfhjkm1729@192.168.12.20:554/cam/realmonitor?channel=1&subtype=1", output_url="rtsp://mediamtx:8554/cam/reception"),
+        # CameraConfig(camera_id=1, video_path="videos/enter_corect.mp4",    min_box_area=5000),   # entrance — people far, small boxes
+        # CameraConfig(camera_id=2, video_path="videos/arka_corect.mp4",  min_box_area=5000),   # arch — same
+        # CameraConfig(camera_id=3, video_path="videos/elevator_2m.mp4", min_box_area=20000),  # elevator — people close, large boxes
+        CameraConfig(
+            camera_id=4, video_path="videos/1084464550-preview.mp4", min_box_area=1
+        ),
+        CameraConfig(
+            camera_id=6, video_path="videos/1092645527-preview.mp4", min_box_area=1
+        ),
     ]
 
-    print("--- Phase 1: Loading Models & Environments ---")
     tracker = MultiCameraTracker(reid_model_path, camera_configs)
-
-    print("\n--- Phase 2: Processing Video Streams ---")
-    start_time = time.time()
-
+    start = time.time()
     tracker.run()
+    elapsed = time.time() - start
+    print(f"Total processing time: {elapsed:.2f}s")
 
-    end_time = time.time()
-    print(
-        f"\nProcessing complete. Pure execution time: {end_time - start_time:.2f} seconds"
-    )
+    # Print summary from DB
+    db = tracker.analytics_db
+    print("\n--- Analytics summary ---")
+    print(f"Unique persons seen : {len(db.get_all_persons())}")
+    print(f"Total entries       : {db.get_entries_count()}")
+    print(f"Total exits         : {db.get_exits_count()}")
 
 
 if __name__ == "__main__":
