@@ -58,6 +58,7 @@ class CameraProcessor:
 
         self.inference_queue = queue.Queue(maxsize=2)
         self.result_queue = queue.Queue(maxsize=2)
+        self.person_count = 0
 
         self.threads = []
 
@@ -152,7 +153,7 @@ class CameraProcessor:
                     l, t, r, b = person["bbox"]
                     global_id = person["global_id"]
                     self.processor.annotate(frame, l, t, r, b, str(global_id))
-                self.processor.draw_person_count(frame, len(current_results))
+                self.processor.draw_person_count(frame, self.person_count)
 
             self.output.write(frame)
 
@@ -172,19 +173,30 @@ class CameraProcessor:
 
             if frame is None:
                 break
-
+            yolo_start = time.time()
             detections = self.detector.detect(frame)
-            if not detections:
-                detections = []
+            yolo_time = time.time() - yolo_start
+            self.logger.info(f"YOLO detection took {yolo_time:.3f} seconds.")
 
-            tracked_results = self.tracker.update(
-                frame,
-                detections,
-                self.reid_model,
-                frame_count,
-                self.config.detection_interval,
-                self.config.camera_id,
-            )
+            self.person_count = len(detections)
+            if self.config.panorama:
+                tracked_results = []
+                for bbox, _, _ in detections:
+                    x, y, w, h = bbox
+                    l, t, r, b = x, y, x + w, y + h
+                    tracked_results.append({"bbox": (l, t, r, b), "global_id": ""})
+            else:
+                if not detections:
+                    detections = []
+
+                tracked_results = self.tracker.update(
+                    frame,
+                    detections,
+                    self.reid_model,
+                    frame_count,
+                    self.config.detection_interval,
+                    self.config.camera_id,
+                )
 
             if self.result_queue.full():
                 try:
